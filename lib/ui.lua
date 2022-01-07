@@ -1,4 +1,6 @@
 -- takt ui @its_your_bedtime
+-- modified by @chailight to support
+-- chords, JF and WSYN
 
 local ui = { waveform = {}, in_l = 0, in_r = 0, out_l = 0, out_r = 0, vu_l, vu_r, vu_o_l, vu_o_r }
 local note_num_to_name = require ('musicutil').note_num_to_name
@@ -13,6 +15,13 @@ local midi_name_lookup = {
   [1] = 'note', [2] = 'velocity', [3] = 'length', [4] = 'channel', [5] = 'device', [6] = 'program_change', 
   [7] = 'cc_1_val', [8] = 'cc_2_val', [9] = 'cc_3_val', [10] = 'cc_3_val', [11] = 'cc_4_val', [12] = 'cc_4_val'
 }
+
+--@chailight chord name display
+local chord_name_lookup = {"M", "m", "D7", "M7", "m7", "mM7", "M6", "m6", "M69", "m69", "D9", "M9", "m9", "D11", "M11", "m11", "D13", "M13", "m13", "Sus4", "7Sus4", "Dim", "Dim7", "hD7", "Aug", "A7" }
+
+--@chailight wsyn param display
+local wsyn_params_lookup = {"Curve", "Ramp", "FM i", "FM e", "RN", "RD", "Time", "Sym"}
+
 local dividers  = {[0] = 'OFF', '1/8', '1/4', '1/2', '3/4', '--', '3/2', '2x' } 
 
 local filter = controlspec.WIDEFREQ
@@ -438,12 +447,27 @@ function ui.draw_note(x, y, params_data, index, ui_index, lock)
   screen.fill()
   local offset = params_data.detune_cents and util.linlin(-100,100,-3,3, params_data.detune_cents) or 0
   screen.level(0)
-  screen.rect(x + 7 + offset, y + 6, 3, 2)
-  screen.rect(x + 8 + offset, y + 6, 3, 1)
-  screen.rect(x + 10 + offset, y +2, 1, 4)
-  screen.rect(x + 11 + offset, y + 3, 1, 1)
-  screen.rect(x + 12 + offset, y + 4, 1, 1)
-  screen.fill()
+  if not params_data.chord or params_data.chord <= 0 then 
+      if ui_index == 2 then -- work out how to restrict this to the midi screen
+        screen.level(15)
+      else
+        screen.level(0)
+      end
+      screen.rect(x + 7 + offset, y + 6, 3, 2)
+      screen.rect(x + 8 + offset, y + 6, 3, 1)
+      screen.rect(x + 10 + offset, y +2, 1, 4)
+      screen.rect(x + 11 + offset, y + 3, 1, 1)
+      screen.rect(x + 12 + offset, y + 4, 1, 1)
+      screen.fill()
+  elseif params_data.chord then
+      if ui_index == 2 then
+        screen.level(15)
+      else
+        screen.level(0)
+      end
+      screen.move(x + 9, y + 7)
+     screen.text_center(chord_name_lookup[tonumber(params_data.chord)])
+  end
   
   local note_name = params_data.note
   local oct = math.floor(note_name / 12 - 2) == 0 and '' or math.floor(note_name / 12 - 2)
@@ -514,7 +538,31 @@ function ui.tile(index, name, value, ui_index, lock, custom)
     local value = string.sub(value, 2)
   end
 
-  if string.len(tostring(value)) > 4 then local value = util.round(value, 0.01) end
+  --@chailight support display of additional JF, WSYN and lfo values
+  --if string.len(tostring(value)) > 4 then local value = util.round(value, 0.01) end
+
+  if not string.match(value, "lfo") then
+      if string.len(tostring(value)) > 4 then local value = util.round(value, 0.01) end
+      if name then
+          if name == "DEV" then
+            --print ("name", name)
+            local disp_value = " " 
+            if value < 5 then 
+                disp_value = value 
+            elseif value == 5 and params:get("takt_jf") == 2 then 
+                disp_value = "JF" 
+            elseif value == 6 and params:get("takt_wsyn") == 2 then 
+                disp_value = "W/" 
+            elseif value == 7 and params:get("takt_crow") == 2 then 
+                disp_value = "CROW" 
+            else
+                disp_value = disp_value 
+            end
+            value = disp_value 
+            --print ("dev", value)
+          end
+       end
+  end
   
   screen.text_center(value)
   screen.stroke()
@@ -707,9 +755,9 @@ function ui.draw_delay(x, y, index )
   end
 end
 
-
-function ui.midi_screen(params_data, ui_index, tracks, steps)
-
+--@chailight need to pass in the track because different tracks need to display parameters per device
+function ui.midi_screen(tr, params_data, ui_index, tracks, steps)
+   local wsyn_on = false
    local tile = {
       {1, 'NOTE', function(i, _, lock) ui.draw_note(1, 8, params_data,i, ui_index, lock) end },
       {2, 'VEL',  params_data.velocity },
@@ -736,15 +784,43 @@ function ui.midi_screen(params_data, ui_index, tracks, steps)
       if v[3] and type(v[3]) == 'function' then
         v[3](v[1], v[2], lock)
       elseif v[3] then
-        if v[1]  > 3 and  v[3] < 0 then 
-          v[3] = '--' 
-        elseif  v[1] == 3 then 
-          v[3] = util.round(util.linlin(1, 256, 1, 16,v[3]),0.01)
-       -- elseif v[1] > 6 then
-         -- local cc = string.sub(v[2], 3)
-          --if tonumber(cc) > 100 then  v[2] = 'CC.'.. string.sub(v[2], 4) end
+        if v[1] == 1 then
+           if ui_index == 2 then 
+                -- adjust ui_index to support chord edit 
+                --print("tile", v[2])
+                ui.tile(v[1], v[2], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false) 
+           else
+                --print("tile", v[2])
+                ui.tile(v[1], v[2], v[3], ui_index, lock , v[1] > 6 and v[1] + 6 or false)
+           end
+        else
+            if v[1]  > 3 and  v[3] < 0 then 
+              v[3] = '--' 
+            elseif  v[1] == 3 then 
+              v[3] = util.round(util.linlin(1, 256, 1, 16,v[3]),0.01)
+            end
+            if v[1] == 5 and v[3] == 6 then
+                wsyn_on = true
+                ui.tile(v[1], v[2], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
+            elseif v[1] > 6 and wsyn_on then 
+                ui.tile(v[1], wsyn_params_lookup[v[1]-5], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
+            else
+                local lfo_name = ""
+                local lfo_tile = 0 
+                for i = 1, 4 do
+                    local target = params:get(i .. "lfo_target") 
+                    if target - 1 - ((tr - 8) * 6) == (v[1] - 6) then
+                        lfo_name = "lfo " .. i 
+                        lfo_tile = target - 1
+                    end
+                end
+                if lfo_tile > 0 then
+                    ui.tile(v[1], v[2], lfo_name, ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
+                else
+                    ui.tile(v[1], v[2], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
+                end
+           end
         end
-        ui.tile(v[1], v[2], v[3], ui_index, lock , v[1] > 6 and v[1] + 6 or false)
       end
     end
    

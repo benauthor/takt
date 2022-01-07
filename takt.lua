@@ -2,7 +2,12 @@
 -- @its_your_bedtime
 --
 -- parameter locking sequencer
---
+-- 
+-- modifications by @chailight
+-- support for global clock
+-- support for just friends, w/syn and crow output
+-- support for chord output
+-- inclusion of additional LFOs
 
 local sampler = include('lib/sampler')
 local browser = include('lib/browser')
@@ -10,6 +15,7 @@ local timber = include('lib/timber_takt')
 local takt_utils = include('lib/_utils')
 local ui = include('lib/ui')
 local linn = include('lib/linn')
+local lfo = include("lib/hnds")
 local beatclock = require 'beatclock'
 local music = require 'musicutil'
 local fileselect = require('fileselect')
@@ -18,6 +24,62 @@ local textentry = require('textentry')
 local midi_clock
 local midi_out_devices = {}
 local REC_CC = 38
+--
+-- supporting variables for @chailight mods
+is_running = flase
+seq_stage = 0
+step = 0
+pattern_name = 'new'
+
+local lfo_targets = {
+    "none",
+    "CC1 8",
+    "CC2 8",
+    "CC3 8",
+    "CC4 8",
+    "CC5 8",
+    "CC6 8",
+    "CC1 9",
+    "CC2 9",
+    "CC3 9",
+    "CC4 9",
+    "CC5 9",
+    "CC6 9",
+    "CC1 10",
+    "CC2 10",
+    "CC3 10",
+    "CC4 10",
+    "CC5 10",
+    "CC6 10",
+    "CC1 11",
+    "CC2 11",
+    "CC3 11",
+    "CC4 11",
+    "CC5 11",
+    "CC6 11",
+    "CC1 12",
+    "CC2 12",
+    "CC3 12",
+    "CC4 12",
+    "CC5 12",
+    "CC6 12",
+    "CC1 13",
+    "CC2 13",
+    "CC3 13",
+    "CC4 13",
+    "CC5 13",
+    "CC6 13",
+    "CC1 14",
+    "CC2 14",
+    "CC3 14",
+    "CC4 14",
+    "CC5 14",
+    "CC6 14"
+}
+
+local chord_names = {"Major", "Minor", "Dominant 7", "Major 7", "Minor 7", "Minor Major 7", "Major 6", "Minor 6", "Major 69", "Minor 69", "Ninth", "Major 9", "Minor 9", "Eleventh", "Major 11", "Minor 11", "Thirteenth", "Major 13", "Minor 13", "Sus4", "Seventh sus4", "Diminished", "Diminished 7", "Half Diminished 7", "Augmented", "Augmented 7"}
+
+local wsyn_params = {"Curve", "Ramp", "FM index", "FM env", "FM ratio numerator", "FM ratio denominator", "LPG time", "LPG symmetry"}
 --
 local hold_time, down_time, blink = 0, 0, 1
 local ALT, SHIFT, MOD, PATTERN_REC, K1_hold, K3_hold, ptn_copy, ptn_change_pending = false, false, false, false, false, false, false, false
@@ -161,12 +223,19 @@ local function deepcopy(orig)
 end
 
 local function load_project(pth)
-  
-  sequencer_metro:stop() 
-  midi_clock:stop()
-  engine.noteOffAll()
-  redraw_metro:stop()
-  comp_shut(sequencer_metro.is_running)
+
+  if original_clock then --@chailight switch behaviour based on clock selection
+      sequencer_metro:stop() 
+      midi_clock:stop()
+      engine.noteOffAll()
+      redraw_metro:stop()
+      comp_shut(sequencer_metro.is_running)
+  else
+      clock.transport.stop()
+      engine.noteOffAll()
+      redraw_metro:stop()
+      comp_shut(is_running)
+  end
 
   if string.find(pth, '.tkt') ~= nil then
     local saved = tab.load(pth)
@@ -198,15 +267,24 @@ local function load_project(pth)
         print("no data")
     end
   end
+  -- add something to force view to main page?
   redraw_metro:start()
 end
 
 local function save_project(txt)
-  sequencer_metro:stop() 
-  midi_clock:stop()
-  redraw_metro:stop()
-  engine.noteOffAll()
-  comp_shut(sequencer_metro.is_running)
+  if original_clock then --@chailight switch behaviour based on clock selection
+      sequencer_metro:stop() 
+      midi_clock:stop()
+      redraw_metro:stop()
+      engine.noteOffAll()
+      comp_shut(sequencer_metro.is_running)
+  else
+      clock.transport.stop()
+      redraw_metro:stop()
+      engine.noteOffAll()
+      comp_shut(is_running)
+  end
+
   if txt then
     tab.save({ txt, data }, norns.state.data .. txt ..".tkt")
     params:write( norns.state.data .. txt .. ".pset")
@@ -214,6 +292,10 @@ local function save_project(txt)
     print("save cancel")
   end
   redraw_metro:start()
+  -- tbd - update this to restart only if previously running 
+  --if not original_clock then
+  --  clock.transport.start()
+  --end
 end
 
 -- views
@@ -268,6 +350,15 @@ local function set_cc(step_param)
   for i = 1, 6 do
     local cc = step_param['cc_' .. i] 
     local val = step_param['cc_' .. i .. '_val'] 
+    -- @chailight: add support for midi CCs to be additional LFO targets
+    for j = 1, 4 do
+        local target = params:get(j .. "lfo_target")
+        --print ("state", j, params:get(j .. "lfo"))
+        if  tonumber(target) - 1 - ((tr - 8) * 6) == i and params:get(j .. "lfo") == 2 then
+            val = math.floor(math.abs(lfo.scale(lfo[j].slope, -1, 1, 1, 127)))
+            print("target", target - 1 - ((tr - 8) * 6), val)
+        end
+    end
     if val > -1 then
       midi_out_devices[step_param.device]:cc(cc, val, step_param.channel)
     end
@@ -379,9 +470,18 @@ local function set_div(tr, div)
 end
 
 local function set_bpm(n)
-    data[data.pattern].bpm = n
-    sequencer_metro.time = 60 / (data[data.pattern].bpm * 2)  / 16 --[[ppqn]] / 4 
-    midi_clock:bpm_change( util.round(data[data.pattern].bpm / midi_dividers[util.clamp(data[data.pattern].sync_div, 1, 7)]))
+    if original_clock then --@chailight switch behaviour based on clock selection
+        data[data.pattern].bpm = n
+        sequencer_metro.time = 60 / (data[data.pattern].bpm * 2)  / 16 --[[ppqn]] / 4 
+        midi_clock:bpm_change( util.round(data[data.pattern].bpm / midi_dividers[util.clamp(data[data.pattern].sync_div, 1, 7)]))
+    else
+        if params:string("clock_source") == "internal" then
+            data[data.pattern].bpm = n
+            params:set("clock_tempo",n)
+        else
+            data[data.pattern].bpm = math.floor(clock.get_tempo()) 
+        end
+    end
 end
 
 local function set_loop(tr, start, len)
@@ -518,9 +618,17 @@ local function seqrun(counter)
         local trig = data[data.pattern][tr][pos]
         
         if tr > 7 and choke[tr][6] then
-          if pos > choke[tr][5] + choke[tr][6] then
-            midi_out_devices[choke[tr][1]]:note_off(choke[tr][2], choke[tr][3], choke[tr][4])
-          end
+            if pos > choke[tr][5] + choke[tr][6] then
+              midi_out_devices[choke[tr][1]]:note_off(choke[tr][2], choke[tr][3], choke[tr][4])
+            end
+            if choke[tr][1] < 5 then
+                if choke[tr][7] > -1 then
+                    local chord = music.generate_chord(choke[tr][2],chord_names[choke[tr][7]]) 
+                    for i = 2, #chord do
+                        midi_out_devices[choke[tr][1]]:note_off(chord[i], choke[tr][3], choke[tr][4])
+                    end
+                end
+            end
         end
         
         if trig == 1 and not mute then
@@ -548,15 +656,50 @@ local function seqrun(counter)
               choke[tr] = step_param.sample
               
             else
-              
-              set_cc(step_param)
-              
-              if step_param.program_change >= 0 then
-                midi_out_devices[step_param.device]:program_change(step_param.program_change, step_param.channel)
-              end
+              if params:get("takt_jf")==2 and step_param.device == 5 then 
+                  crow.ii.jf.play_note((step_param.note-60)/12,(step_param.velocity/127) * 10)
+                  if step_param.chord then
+                      if step_param.chord > -1 then
+                        local chord = music.generate_chord(step_param.note,chord_names[step_param.chord]) 
+                        for i = 2, #chord do
+                            crow.ii.jf.play_note((chord[i]-60)/12,(step_param.velocity/127) * 10)
+                        end
+                      end
+                  end
+              elseif params:get("takt_wsyn")==2 and step_param.device == 6 then 
+                  crow.ii.wsyn.lpg_time(util.linlin(1,127,5,-5,step_param.length))
+                  crow.ii.wsyn.play_note((step_param.note-60)/12,(step_param.velocity/127) * 5)
+                  if step_param.chord then
+                      if step_param.chord > -1 then
+                        local chord = music.generate_chord(step_param.note,chord_names[step_param.chord]) 
+                        for i = 2, #chord do
+                            crow.ii.wsyn.play_note((chord[i]-60)/12,(step_param.velocity/127) * 5)
+                        end
+                      end
+                  end
+              else
+                  set_cc(step_param)
+                  
+                  if step_param.program_change >= 0 then
+                    midi_out_devices[step_param.device]:program_change(step_param.program_change, step_param.channel)
+                  end
 
-              midi_out_devices[step_param.device]:note_on( step_param.note, step_param.velocity, step_param.channel )
-              choke[tr] = { step_param.device, step_param.note, step_param.velocity, step_param.channel, pos, step_param.length} 
+                  midi_out_devices[step_param.device]:note_on( step_param.note, step_param.velocity, step_param.channel )
+                  if step_param.chord then
+                      if step_param.chord > -1 then
+                        local chord = music.generate_chord(step_param.note,chord_names[step_param.chord]) 
+                        --print("root", step_param.note)
+                        --print("chord", chord, #chord)
+                        --print("chord on", chord, chord_names[step_param.chord])
+                        for i = 2, #chord do
+                            --print("chord on", i, chord[i]) 
+                            midi_out_devices[step_param.device]:note_on( chord[i], step_param.velocity, step_param.channel )
+                            --midi_out_devices[step_param.device]:note_on( step_param.note+7, step_param.velocity, step_param.channel )
+                        end
+                      end
+                  end
+                  choke[tr] = { step_param.device, step_param.note, step_param.velocity, step_param.channel, pos, step_param.length} 
+              end
             end
           end
        end
@@ -583,7 +726,8 @@ local function midi_event(d)
     if not view.sampling then
       engine.noteOff(tr)
       engine.noteOn(tr, music.note_num_to_freq(msg.note), msg.vel / 127, data[data.pattern][tr].params[tostring(tr)].sample)
-      if sequencer_metro.is_running and PATTERN_REC then
+      --if sequencer_metro.is_running and PATTERN_REC then 
+      if is_running and PATTERN_REC then --@chailight unifying on a single is_running flag
         place_note(tr, pos, msg.note)
       end
     end
@@ -625,63 +769,66 @@ end,
 end,
 }
 
-
+--@chailight - inserted additional function to support chord selection
 local midi_step_params = {
 
   [1] = function(tr, s, d) -- note
       data[data.pattern][tr].params[s].note = util.clamp(data[data.pattern][tr].params[s].note + d, 25, 127)
   end,
-  [2] = function(tr, s, d) -- velocity
+  [2] = function(tr, s, d) -- chord
+      data[data.pattern][tr].params[s].chord = util.clamp(data[data.pattern][tr].params[s].chord + d, -1, 26)
+  end,
+  [3] = function(tr, s, d) -- velocity
       data[data.pattern][tr].params[s].velocity = util.clamp(data[data.pattern][tr].params[s].velocity + d, 0, 127)
   end,
-  [3] = function(tr, s, d) -- length
+  [4] = function(tr, s, d) -- length
       data[data.pattern][tr].params[s].length = util.clamp(data[data.pattern][tr].params[s].length + d, 1, 256)
   end,
-  [4] = function(tr, s, d) -- channel
+  [5] = function(tr, s, d) -- channel
       data[data.pattern][tr].params[s].channel = util.clamp(data[data.pattern][tr].params[s].channel + d, 1, 16)
   end,
-  [5] = function(tr, s, d) -- device
+  [6] = function(tr, s, d) -- device
       data[data.pattern][tr].params[s].device = util.clamp(data[data.pattern][tr].params[s].device + d, 1, 4)
   end,
-  [6] = function(tr, s, d) -- pgm
+  [7] = function(tr, s, d) -- pgm
       data[data.pattern][tr].params[s].program_change = util.clamp(data[data.pattern][tr].params[s].program_change + d, -1, 127)
   end,
   
-  [7] = function(tr, s, d) -- 
+  [8] = function(tr, s, d) -- 
       data[data.pattern][tr].params[s].cc_1_val = util.clamp(data[data.pattern][tr].params[s].cc_1_val + d, -1, 127)
   end,
-  [8] = function(tr, s, d) -- 
+  [9] = function(tr, s, d) -- 
       data[data.pattern][tr].params[s].cc_2_val = util.clamp(data[data.pattern][tr].params[s].cc_2_val + d, -1, 127)
   end,
-  [9] = function(tr, s, d) -- 
+  [10] = function(tr, s, d) -- 
       data[data.pattern][tr].params[s].cc_3_val = util.clamp(data[data.pattern][tr].params[s].cc_3_val + d, -1, 127)
   end,
-  [10] = function(tr, s, d) -- 
+  [11] = function(tr, s, d) -- 
       data[data.pattern][tr].params[s].cc_4_val = util.clamp(data[data.pattern][tr].params[s].cc_4_val + d, -1, 127)
   end,
-  [11] = function(tr, s, d) -- 
+  [12] = function(tr, s, d) -- 
       data[data.pattern][tr].params[s].cc_5_val = util.clamp(data[data.pattern][tr].params[s].cc_5_val + d, -1, 127)
   end,
-  [12] = function(tr, s, d) -- 
+  [13] = function(tr, s, d) -- 
       data[data.pattern][tr].params[s].cc_6_val = util.clamp(data[data.pattern][tr].params[s].cc_6_val + d, -1, 127)
   end,
   
-  [13] = function(tr, s, d) -- 
+  [14] = function(tr, s, d) -- 
       data[data.pattern][tr].params[s].cc_1 = util.clamp(data[data.pattern][tr].params[s].cc_1 + d, 1, 127)
   end,
-  [14] = function(tr, s, d) -- 
+  [15] = function(tr, s, d) -- 
       data[data.pattern][tr].params[s].cc_2 = util.clamp(data[data.pattern][tr].params[s].cc_2 + d, 1, 127)
   end,
-  [15] = function(tr, s, d) -- 
+  [16] = function(tr, s, d) -- 
       data[data.pattern][tr].params[s].cc_3 = util.clamp(data[data.pattern][tr].params[s].cc_3 + d, 1, 127)
   end,
-  [16] = function(tr, s, d) -- 
+  [17] = function(tr, s, d) -- 
       data[data.pattern][tr].params[s].cc_4 = util.clamp(data[data.pattern][tr].params[s].cc_4 + d, 1, 127)
   end,
-  [17] = function(tr, s, d) -- 
+  [18] = function(tr, s, d) -- 
       data[data.pattern][tr].params[s].cc_5 = util.clamp(data[data.pattern][tr].params[s].cc_5 + d, 1, 127)
   end,
-  [18] = function(tr, s, d) -- 
+  [19] = function(tr, s, d) -- 
       data[data.pattern][tr].params[s].cc_6 = util.clamp(data[data.pattern][tr].params[s].cc_6 + d, 1, 127)
   end,
 
@@ -801,23 +948,41 @@ local trig_params = {
 local controls = {
   [1] = function(z) -- start / stop, 
       if z == 1 then
-        if sequencer_metro.is_running then 
-          sequencer_metro:stop() 
-          midi_clock:stop()
-          notes_off_midi()
-        else 
-          sequencer_metro:start() 
-          midi_clock:start()
+        if original_clock then --@chailight switch behaviour based on clock selection
+            if sequencer_metro.is_running then 
+              sequencer_metro:stop() 
+              midi_clock:stop()
+              notes_off_midi()
+              is_running = sequencer_metro.is_running --@chailight maintain a single is_running_status
+            else 
+              sequencer_metro:start() 
+              is_running = sequencer_metro.is_running --@chailight maintain a single is_running_status
+              midi_clock:start()
+            end
+            if MOD then
+              engine.noteOffAll() 
+              reset_positions()
+              kill_all_midi()
+            end
+            comp_shut(sequencer_metro.is_running)
+        else
+            if is_running then 
+              clock.transport.stop()
+              notes_off_midi()
+            else 
+              clock.transport.start()
+            end
+            if MOD then
+              engine.noteOffAll() 
+              reset_positions()
+              kill_all_midi()
+            end
+            comp_shut(is_running)
         end
-        if MOD then
-          engine.noteOffAll() 
-          reset_positions()
-          kill_all_midi()
-        end
-        comp_shut(sequencer_metro.is_running)
       end
     end,
-  [3] = function(z)  if view.notes_input and z == 1 and sequencer_metro.is_running then PATTERN_REC = not PATTERN_REC end end,
+  --[3] = function(z)  if view.notes_input and z == 1 and sequencer_metro.is_running then PATTERN_REC = not PATTERN_REC end end,
+  [3] = function(z)  if view.notes_input and z == 1 and is_running then PATTERN_REC = not PATTERN_REC end end,
   [5] = function(z)  if z == 1 then if not view.notes_input then set_view('steps_engine') PATTERN_REC = false end tr_change(1)  end end,
   [6] = function(z)  if z == 1 then  if not view.notes_input then set_view('steps_midi') PATTERN_REC = false end tr_change(8)  end end,
   [8] = function(z)  if z == 1 then set_view(view.notes_input and (data.selected[1] < 8 and 'steps_engine' or 'steps_midi') or 'notes_input') end end,
@@ -866,13 +1031,39 @@ function init()
   math.randomseed(os.time())
 
     params:add_trigger('save_p', "< Save project" )
-    params:set_action('save_p', function(x) textentry.enter(save_project,  'new') end)
+    --@chailight: modified default save name so pick up existing project name if it exists
+    --params:set_action('save_p', function(x) textentry.enter(save_project,  'new') end)
+    params:set_action('save_p', function(x) textentry.enter(save_project,  pattern_name) end)
     params:add_trigger('load_p', "> Load project" )
     params:set_action('load_p', function(x) fileselect.enter(norns.state.data, load_project) end)
     params:add_trigger('new', "+ New" )
     params:set_action('new', function(x) init() end)
     params:add_separator()
+    params:add_option("takt_crow","crow output",{"no","yes"},1)
+    params:add_option("takt_jf","jf output",{"no","yes"},1)
+    params:add_option("takt_wsyn","wsyn output",{"no","yes"},1)
+    params:set_action("takt_jf",function(x)
+        if x==2 then
+          crow.ii.jf.mode(1)
+        end
+    end)
+    params:set_action("takt_wsyn",function(x)
+        if x==2 then
+          crow.ii.wsyn.play_voice(0,0,0)
+        end
+    end)
+    wsyn_add_params()
+    params:bang()
+    params:set("wsyn_init",1)
 
+    params:add_separator()
+
+    for i = 1, 4 do
+        lfo[i].lfo_targets = lfo_targets
+    end
+    lfo.init()
+      
+    params:add_separator()
       
     for i = 1, 14 do
       hold[i] = 0
@@ -889,17 +1080,63 @@ function init()
     sampler.init()
     ui.init()
 
-    sequencer_metro = metro.init()
-    sequencer_metro.time = 60 / (data[data.pattern].bpm * 2) / 16 --[[ppqn]] / 4 
-    sequencer_metro.event = function(stage) seqrun(stage) if stage % m_div(data.metaseq.div) == 0 then metaseq(stage) end end
+    if original_clock then --@chailight switch behaviour based on clock selection
+        sequencer_metro = metro.init()
+        sequencer_metro.time = 60 / (data[data.pattern].bpm * 2) / 16 --[[ppqn]] / 4 
+        sequencer_metro.event = function(stage) seqrun(stage) if stage % m_div(data.metaseq.div) == 0 then metaseq(stage) end end
 
-    redraw_metro = metro.init(function(stage) redraw(stage) g:redraw() blink = (blink + 1) % 17 end, 1/30)
-    redraw_metro:start()
-    midi_clock = beatclock:new()
-    midi_clock.on_step = function() end
-    midi_clock:bpm_change( util.round(data[data.pattern].bpm / midi_dividers[util.clamp(data[data.pattern].sync_div, 1, 7)]))
-    midi_clock.send = false
+        redraw_metro = metro.init(function(stage) redraw(stage) g:redraw() blink = (blink + 1) % 17 end, 1/30)
+        redraw_metro:start()
+        midi_clock = beatclock:new()
+        midi_clock.on_step = function() end
+        midi_clock:bpm_change( util.round(data[data.pattern].bpm / midi_dividers[util.clamp(data[data.pattern].sync_div, 1, 7)]))
+        midi_clock.send = false
+    else
+        if params:string("clock_source") == "internal" then
+            params:set("clock_tempo", data[data.pattern].bpm)
+        end
+        redraw_metro = metro.init(function(stage) redraw(stage) g:redraw() blink = (blink + 1) % 17 end, 1/30)
+        redraw_metro:start()
+    end
 end
+
+function clocked_seq()
+    if params:string("clock_source") ~= "midi" then
+        clock.sync(4) -- wait until the "1" of a 4/4 count
+    end
+    while true do
+        for i=1,256 do
+          clock.sync(1/128)
+          seqrun(math.floor(i))
+          if i % m_div(data.metaseq.div) == 0 then 
+              metaseq() 
+          end 
+        end
+        clock.sync(1/128)
+    end
+end
+
+function clock.transport.start()
+  -- print("we begin")
+  if params:string("clock_source") ~= "internal" then
+    reset_positions()
+  end
+  is_running = true 
+  seq_stage = 0
+  sequencer_clock = clock.run(clocked_seq) 
+  print("transport: run")
+end
+
+function clock.transport.stop()
+    if is_running then
+        is_running = false 
+        clock.cancel(sequencer_clock)
+        print("transport: stop")
+    else 
+        print("transport: already stopped")
+    end
+end
+
 
 function enc(n,d)
   norns.encoders.set_sens(1,3)
@@ -923,7 +1160,8 @@ function enc(n,d)
     
     if not view.sampling then
       if not K1_is_hold() then 
-        data.ui_index = util.clamp(data.ui_index + d, not data.selected[2] and 1 or -3, (view.steps_midi or view.patterns) and 18 or 20)
+        --@chailight adjusted limit from 18 to 19 because of additional chord function for midi ui_index
+        data.ui_index = util.clamp(data.ui_index + d, not data.selected[2] and 1 or -3, (view.steps_midi or view.patterns) and 19 or 20)
       else
         data.ui_index = util.clamp(data.ui_index + d, view.patterns and -1 or -6, -1)
       end
@@ -975,7 +1213,7 @@ end
 
 function key(n,z)
   K1_hold = (n == 1 and z == 1) and true or false
-  K3_hold = (n == 1 and z == 1) and true or false
+  K3_hold = (n == 3 and z == 1) and true or false --@chailight correcting a bug?
   if browser.open then
     browser.key(n, z)
 
@@ -1032,7 +1270,8 @@ function redraw(stage)
 
   local tr = data.selected[1]
   local pos = data[data.pattern].track.pos[tr]
-  local params_data = get_params(tr, sequencer_metro.is_running and pos or false, true)
+  --local params_data = get_params(tr, sequencer_metro.is_running and pos or false, true)
+  local params_data = get_params(tr, is_running and pos or false, true)
   
   
   
@@ -1066,7 +1305,9 @@ function redraw(stage)
       ui.main_screen(redraw_params[1], data.ui_index, meta)
       if browser.open then browser.redraw() end
     else
-      ui.midi_screen(redraw_params[1], data.ui_index, data[data.pattern].track, data[data.pattern])
+      --@chailight can't recall why this needed to change
+      --ui.midi_screen(redraw_params[1], data.ui_index, data[data.pattern].track, data[data.pattern])
+      ui.midi_screen(data.selected[1].redraw_params[1], data.ui_index, data[data.pattern].track, data[data.pattern])
     end
   end
   screen.update()
@@ -1079,12 +1320,14 @@ function g.key(x, y, z)
     local tr = data.selected[1]
     local device = data[data.pattern][tr].params[tr].device
     local note = linn.grid_key(x, y, z, device and midi_out_devices[device])
+    --@chailight support for jf and wsyn output devices needed here
     local pos = data[data.pattern].track.pos[tr]
     if note then 
       if tr < 8 then
         engine.noteOn(data.selected[1], music.note_num_to_freq(note), 1, data[data.pattern][data.selected[1]].params[tr].sample)
       end
-      if sequencer_metro.is_running and PATTERN_REC then 
+      --if sequencer_metro.is_running and PATTERN_REC then 
+      if is_running and PATTERN_REC then 
         place_note(tr, pos, note )
       end
     end           
@@ -1235,7 +1478,8 @@ function g.redraw()
             local id = to_id(x,y)
             --print(id)
             local level =
-            id == ptn_change_pending  and sequencer_metro.is_running and  util.clamp(blink, 5, 14)
+            --id == ptn_change_pending  and sequencer_metro.is_running and  util.clamp(blink, 5, 14)
+            id == ptn_change_pending  and is_running and  util.clamp(blink, 5, 14)
             or (data.metaseq.from and data.metaseq.to) and id == data.pattern and  util.clamp(blink, 5, 14)
             or (id >= (data.metaseq.from and data.metaseq.from or data.pattern) and id <= (data.metaseq.to and data.metaseq.to or data.pattern)) and 9 
             or data.pattern == id and 15 
@@ -1248,7 +1492,8 @@ function g.redraw()
       end
     end
     -- playhead
-    if (view.notes_input and  ALT ) or (not view.patterns and not view.notes_input) and sequencer_metro.is_running and not SHIFT then
+    --if (view.notes_input and  ALT ) or (not view.patterns and not view.notes_input) and sequencer_metro.is_running and not SHIFT then
+    if (view.notes_input and  ALT ) or (not view.patterns and not view.notes_input) and is_running and not SHIFT then
       local yy = view.steps_midi and y + 7 or y 
       local pos = math.ceil(data[data.pattern].track.pos[yy] / 16)
       local level = have_substeps(yy, pos) and 15 or 6
@@ -1256,7 +1501,8 @@ function g.redraw()
     end
   end
   
-  g:led(1, 8,  sequencer_metro.is_running and 15 or 6 )
+  --g:led(1, 8,  sequencer_metro.is_running and 15 or 6 )
+  g:led(1, 8,  is_running and 15 or 6 )
   
   g:led(3, 8,  (view.notes_input and PATTERN_REC) and glow or view.notes_input and 6 or 0)
   g:led(5, 8,  (view.notes_input and data.selected[1] < 8 or view.steps_engine) and 15  or  6)
@@ -1274,3 +1520,152 @@ function g.redraw()
 
 end
 
+function wsyn_add_params()
+  params:add_group("w/syn",12)
+  params:add {
+    type = "option",
+    id = "wsyn_ar_mode",
+    name = "AR mode",
+    options = {"off", "on"},
+    default = 2,
+    action = function(val)
+      crow.send("ii.wsyn.ar_mode(".. (val-1) ..")")
+    end
+  }
+  params:add {
+    type = "control",
+    id = "wsyn_vel",
+    name = "Velocity",
+    controlspec = controlspec.new(0, 5, "lin", 0, 2, "v"),
+    action = function(val)
+      pset_wsyn_vel = val
+    end
+  }
+  params:add {
+    type = "control",
+    id = "wsyn_curve",
+    name = "Curve",
+    controlspec = controlspec.new(-5, 5, "lin", 0, 0, "v"),
+    action = function(val)
+      crow.send("ii.wsyn.curve(" .. val .. ")")
+      pset_wsyn_curve = val
+    end
+  }
+  params:add {
+    type = "control",
+    id = "wsyn_ramp",
+    name = "Ramp",
+    controlspec = controlspec.new(-5, 5, "lin", 0, 0, "v"),
+    action = function(val)
+      crow.send("ii.wsyn.ramp(" .. val .. ")")
+      pset_wsyn_ramp = val
+    end
+  }
+  params:add {
+    type = "control",
+    id = "wsyn_fm_index",
+    name = "FM index",
+    controlspec = controlspec.new(0, 5, "lin", 0, 0, "v"),
+    action = function(val)
+      crow.send("ii.wsyn.fm_index(" .. val .. ")")
+      pset_wsyn_fm_index = val
+    end
+  }
+  params:add {
+    type = "control",
+    id = "wsyn_fm_env",
+    name = "FM env",
+    controlspec = controlspec.new(-5, 5, "lin", 0, 0, "v"),
+    action = function(val)
+      crow.send("ii.wsyn.fm_env(" .. val .. ")")
+      pset_wsyn_fm_env = val
+    end
+  }
+  params:add {
+    type = "control",
+    id = "wsyn_fm_ratio_num",
+    name = "FM ratio numerator",
+    controlspec = controlspec.new(1, 20, "lin", 1, 2),
+    action = function(val)
+      crow.send("ii.wsyn.fm_ratio(" .. val .. "," .. params:get("wsyn_fm_ratio_den") .. ")")
+      pset_wsyn_fm_ratio_num = val
+    end
+  }
+  params:add {
+    type = "control",
+    id = "wsyn_fm_ratio_den",
+    name = "FM ratio denominator",
+    controlspec = controlspec.new(1, 20, "lin", 1, 1),
+    action = function(val)
+      crow.send("ii.wsyn.fm_ratio(" .. params:get("wsyn_fm_ratio_num") .. "," .. val .. ")")
+      pset_wsyn_fm_ratio_den = val
+    end
+  }
+  params:add {
+    type = "control",
+    id = "wsyn_lpg_time",
+    name = "LPG time",
+    controlspec = controlspec.new(-5, 5, "lin", 0, 0, "v"),
+    action = function(val)
+      crow.send("ii.wsyn.lpg_time(" .. val .. ")")
+      pset_wsyn_lpg_time = val
+    end
+  }
+  params:add {
+    type = "control",
+    id = "wsyn_lpg_symmetry",
+    name = "LPG symmetry",
+    controlspec = controlspec.new(-5, 5, "lin", 0, 0, "v"),
+    action = function(val)
+      crow.send("ii.wsyn.lpg_symmetry(" .. val .. ")")
+      pset_wsyn_lpg_symmetry = val
+    end
+  }
+  params:add{
+    type = "trigger",
+    id = "wsyn_pluckylog",
+    name = "Pluckylogger >>>",
+    action = function()
+      params:set("wsyn_curve", math.random(-40, 40)/10)
+      params:set("wsyn_ramp", math.random(-5, 5)/10)
+      params:set("wsyn_fm_index", math.random(-50, 50)/10)
+      params:set("wsyn_fm_env", math.random(-50, 40)/10)
+      params:set("wsyn_fm_ratio_num", math.random(1, 4))
+      params:set("wsyn_fm_ratio_den", math.random(1, 4))
+      params:set("wsyn_lpg_time", math.random(-28, -5)/10)
+      params:set("wsyn_lpg_symmetry", math.random(-50, -30)/10)
+    end
+  }
+  params:add{
+    type = "trigger",
+    id = "wsyn_randomize",
+    name = "Randomize all >>>",
+    action = function()
+      params:set("wsyn_curve", math.random(-50, 50)/10)
+      params:set("wsyn_ramp", math.random(-50, 50)/10)
+      params:set("wsyn_fm_index", math.random(0, 50)/10)
+      params:set("wsyn_fm_env", math.random(-50, 50)/10)
+      params:set("wsyn_fm_ratio_num", math.random(1, 20))
+      params:set("wsyn_fm_ratio_den", math.random(1, 20))
+      params:set("wsyn_lpg_time", math.random(-50, 50)/10)
+      params:set("wsyn_lpg_symmetry", math.random(-50, 50)/10)
+    end
+  }
+  params:add{
+    type = "trigger",
+    id = "wsyn_init",
+    name = "Init",
+    action = function()
+      params:set("wsyn_curve", pset_wsyn_curve)
+      params:set("wsyn_ramp", pset_wsyn_ramp)
+      params:set("wsyn_fm_index", pset_wsyn_fm_index)
+      params:set("wsyn_fm_env", pset_wsyn_fm_env)
+      params:set("wsyn_fm_ratio_num", pset_wsyn_fm_ratio_num)
+      params:set("wsyn_fm_ratio_den", pset_wsyn_fm_ratio_den)
+      params:set("wsyn_lpg_time", pset_wsyn_lpg_time)
+      params:set("wsyn_lpg_symmetry", pset_wsyn_lpg_symmetry)
+      params:set("wsyn_vel", pset_wsyn_vel)
+    end
+  }
+  params:hide("wsyn_init")
+end
