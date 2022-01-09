@@ -1,4 +1,4 @@
--- takt v2.2
+-- takt v2.3
 -- @its_your_bedtime
 --
 -- parameter locking sequencer
@@ -241,6 +241,7 @@ local function load_project(pth)
     local saved = tab.load(pth)
     if saved ~= nil then
       print("data found")
+      pattern_name = saved[1] --@chailight set default pattern name to loaded pattern name
       for k,v in pairs(saved[2]) do 
         data[k] = v
       end
@@ -346,7 +347,7 @@ local function set_locks(step_param)
       end
     end
 end
-local function set_cc(step_param)
+local function set_cc(tr, step_param)
   for i = 1, 6 do
     local cc = step_param['cc_' .. i] 
     local val = step_param['cc_' .. i .. '_val'] 
@@ -678,7 +679,7 @@ local function seqrun(counter)
                       end
                   end
               else
-                  set_cc(step_param)
+                  set_cc(tr, step_param)
                   
                   if step_param.program_change >= 0 then
                     midi_out_devices[step_param.device]:program_change(step_param.program_change, step_param.channel)
@@ -787,8 +788,9 @@ local midi_step_params = {
   [5] = function(tr, s, d) -- channel
       data[data.pattern][tr].params[s].channel = util.clamp(data[data.pattern][tr].params[s].channel + d, 1, 16)
   end,
+  --@chailight increase the options for the device to enable selecting JF, WSyn and crow 
   [6] = function(tr, s, d) -- device
-      data[data.pattern][tr].params[s].device = util.clamp(data[data.pattern][tr].params[s].device + d, 1, 4)
+      data[data.pattern][tr].params[s].device = util.clamp(data[data.pattern][tr].params[s].device + d, 1, 7)
   end,
   [7] = function(tr, s, d) -- pgm
       data[data.pattern][tr].params[s].program_change = util.clamp(data[data.pattern][tr].params[s].program_change + d, -1, 127)
@@ -1307,7 +1309,7 @@ function redraw(stage)
     else
       --@chailight can't recall why this needed to change
       --ui.midi_screen(redraw_params[1], data.ui_index, data[data.pattern].track, data[data.pattern])
-      ui.midi_screen(data.selected[1].redraw_params[1], data.ui_index, data[data.pattern].track, data[data.pattern])
+      ui.midi_screen(data.selected[1],redraw_params[1], data.ui_index, data[data.pattern].track, data[data.pattern])
     end
   end
   screen.update()
