@@ -238,6 +238,7 @@ local function load_project(pth)
       comp_shut(is_running)
   end
 
+  --set_view('steps_engine')
   if string.find(pth, '.tkt') ~= nil then
     local saved = tab.load(pth)
     if saved ~= nil then
@@ -270,7 +271,6 @@ local function load_project(pth)
     end
   end
   -- add something to force view to main page?
-  --set_view('steps_engine')
   redraw_metro:start()
 end
 
@@ -359,7 +359,7 @@ local function set_cc(tr, step_param)
         --print ("state", j, params:get(j .. "lfo"))
         if  tonumber(target) - 1 - ((tr - 8) * 6) == i and params:get(j .. "lfo") == 2 then
             val = math.floor(math.abs(lfo.scale(lfo[j].slope, -1, 1, 1, 127)))
-            print("target", target - 1 - ((tr - 8) * 6), val)
+            --print("target", target - 1 - ((tr - 8) * 6), val)
         end
     end
     if val > -1 then
@@ -667,6 +667,7 @@ local function seqrun(counter)
             else
               if params:get("takt_jf")==2 and step_param.device == 5 then 
                   crow.ii.jf.play_note((step_param.note-60)/12,(step_param.velocity/127) * 10)
+                  --print("jf", step_param.note)
                   if step_param.chord then
                       if step_param.chord > -1 then
                         local chord = music.generate_chord(step_param.note,chord_names[step_param.chord]) 
@@ -678,6 +679,7 @@ local function seqrun(counter)
               elseif params:get("takt_wsyn")==2 and step_param.device == 6 then 
                   crow.ii.wsyn.lpg_time(util.linlin(1,127,5,-5,step_param.length))
                   crow.ii.wsyn.play_note((step_param.note-60)/12,(step_param.velocity/127) * 5)
+                  --print("wsyn", step_param.note)
                   if step_param.chord then
                       if step_param.chord > -1 then
                         local chord = music.generate_chord(step_param.note,chord_names[step_param.chord]) 
@@ -694,6 +696,7 @@ local function seqrun(counter)
                   end
 
                   midi_out_devices[step_param.device]:note_on( step_param.note, step_param.velocity, step_param.channel )
+                  --print("note", step_param.note)
                   if step_param.chord then
                       if step_param.chord > -1 then
                         local chord = music.generate_chord(step_param.note,chord_names[step_param.chord]) 
@@ -701,7 +704,7 @@ local function seqrun(counter)
                         --print("chord", chord, #chord)
                         --print("chord on", chord, chord_names[step_param.chord])
                         for i = 2, #chord do
-                            -- print("chord on", i, chord[i]) 
+                            --print("chord on", i, chord[i]) 
                             midi_out_devices[step_param.device]:note_on( chord[i], step_param.velocity, step_param.channel )
                             --midi_out_devices[step_param.device]:note_on( step_param.note+7, step_param.velocity, step_param.channel )
                         end
@@ -1747,3 +1750,5 @@ function crow_player:play_note(note, vel, length, channel, track)
     end
   end)
 end
+-- norns.crow.send( "for n=1,4 do ii.txo.tr_pulse(n) end" )
+-- crow.output[1].action = "lfo(1.25,10)"
