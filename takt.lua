@@ -80,6 +80,7 @@ local lfo_targets = {
 local chord_names = {"Major", "Minor", "Dominant 7", "Major 7", "Minor 7", "Minor Major 7", "Major 6", "Minor 6", "Major 69", "Minor 69", "Ninth", "Major 9", "Minor 9", "Eleventh", "Major 11", "Minor 11", "Thirteenth", "Major 13", "Minor 13", "Sus4", "Seventh sus4", "Diminished", "Diminished 7", "Half Diminished 7", "Augmented", "Augmented 7"}
 
 local wsyn_params = {"Curve", "Ramp", "FM index", "FM env", "FM ratio numerator", "FM ratio denominator", "LPG time", "LPG symmetry"}
+ASL_SHAPES = {'linear','sine','logarithmic','exponential','now'}
 --
 local hold_time, down_time, blink = 0, 0, 1
 local ALT, SHIFT, MOD, PATTERN_REC, K1_hold, K3_hold, ptn_copy, ptn_change_pending = false, false, false, false, false, false, false, false
@@ -269,6 +270,7 @@ local function load_project(pth)
     end
   end
   -- add something to force view to main page?
+  --set_view('steps_engine')
   redraw_metro:start()
 end
 
@@ -568,6 +570,13 @@ local function notes_off_midi()
   for i = 8, 14 do
       if choke[i][6] then
         midi_out_devices[choke[i][1]]:note_off(choke[i][2], choke[i][3], choke[i][4])
+        if choke[i][7] > -1 then
+            local chord = music.generate_chord(choke[i][2],chord_names[choke[i][7]]) 
+            for j = 2, #chord do
+                --print("chord off", i, chord[i]) 
+                midi_out_devices[choke[i][1]]:note_off(chord[j], choke[i][3], choke[i][4])
+            end
+        end
       end
   end
 end
@@ -621,11 +630,10 @@ local function seqrun(counter)
         if tr > 7 and choke[tr][6] then
             if pos > choke[tr][5] + choke[tr][6] then
               midi_out_devices[choke[tr][1]]:note_off(choke[tr][2], choke[tr][3], choke[tr][4])
-            end
-            if choke[tr][1] < 5 then
                 if choke[tr][7] > -1 then
                     local chord = music.generate_chord(choke[tr][2],chord_names[choke[tr][7]]) 
                     for i = 2, #chord do
+                        --print("chord off", i, chord[i]) 
                         midi_out_devices[choke[tr][1]]:note_off(chord[i], choke[tr][3], choke[tr][4])
                     end
                 end
@@ -693,13 +701,13 @@ local function seqrun(counter)
                         --print("chord", chord, #chord)
                         --print("chord on", chord, chord_names[step_param.chord])
                         for i = 2, #chord do
-                            --print("chord on", i, chord[i]) 
+                            -- print("chord on", i, chord[i]) 
                             midi_out_devices[step_param.device]:note_on( chord[i], step_param.velocity, step_param.channel )
                             --midi_out_devices[step_param.device]:note_on( step_param.note+7, step_param.velocity, step_param.channel )
                         end
                       end
                   end
-                  choke[tr] = { step_param.device, step_param.note, step_param.velocity, step_param.channel, pos, step_param.length} 
+                  choke[tr] = { step_param.device, step_param.note, step_param.velocity, step_param.channel, pos, step_param.length, step_param.chord} 
               end
             end
           end
@@ -1057,8 +1065,10 @@ function init()
     wsyn_add_params()
     params:bang()
     params:set("wsyn_init",1)
+    crow_add_params()
 
     params:add_separator()
+
 
     for i = 1, 4 do
         lfo[i].lfo_targets = lfo_targets
@@ -1521,6 +1531,18 @@ function g.redraw()
   g:refresh()
 
 end
+function crow_add_params()
+    params:add_group("crow output", 9)
+    params:add_control("crow/attack_time", "attack", controlspec.new(0.0001, 3, 'exp', 0, 0.1, "s"))
+    params:add_option("crow/attack_shape", "attack shape", ASL_SHAPES, 3)
+    params:add_control("crow/decay_time", "decay", controlspec.new(0.0001, 10, 'exp', 0, 1.0, "s"))
+    params:add_option("crow/decay_shape", "decay shape", ASL_SHAPES, 4)
+    params:add_control("crow/sustain", "sustain", controlspec.new(0.0, 1.0, 'lin', 0, 0.75, ""))
+    params:add_control("crow/release_time", "release", controlspec.new(0.0001, 10, 'exp', 0, 0.5, "s"))
+    params:add_option("crow/release_shape", "release shape", ASL_SHAPES, 4)
+    params:add_control("crow/portomento", "portomento", controlspec.new(0.0, 1, 'lin', 0, 0.0, "s"))
+    params:add_binary("crow/legato", "legato", "toggle", 1)
+end
 
 function wsyn_add_params()
   params:add_group("w/syn",12)
@@ -1670,4 +1692,58 @@ function wsyn_add_params()
     end
   }
   params:hide("wsyn_init")
+end
+
+crow_player = {
+  channel_map={0, 0},
+}
+
+function crow_player:play_note(note, vel, length, channel, track)
+  local v8 = (note - 60)/12
+  local v_vel = (vel/127) * 10
+  local pitch_o = 0;
+  local envelope_o = 0;
+  local voice = 0;
+  local attack = params:get("crow/attack_time")
+  local attack_shape = ASL_SHAPES[params:get("crow/attack_shape")]
+  local decay = params:get("crow/decay_time")
+  local decay_shape = ASL_SHAPES[params:get("crow/decay_shape")]
+  local sustain = params:get("crow/sustain")
+  local release = params:get("crow/release_time")
+  local release_shape = ASL_SHAPES[params:get("crow/release_shape")]
+  local portomento = params:get("crow/portomento")
+  local legato = params:get("crow/legato")
+
+  if params:get("output "..track) == CROW_12_VOICE then
+    voice = 1
+    pitch_o = 1
+    envelope_o = 2
+  else
+    voice = 2
+    pitch_o = 3
+    envelope_o = 4
+  end
+  local was = self.channel_map[voice]
+  local now = was + 1
+  self.channel_map[voice] = now
+  if was then
+    crow.output[pitch_o].action = string.format("{ to(%f,%f,sine) }", v8, portomento)
+    crow.output[pitch_o]()
+  else
+    crow.output[pitch_o].volts = v8
+  end
+  if (was > 0) and (legato > 0) then
+    crow.output[envelope_o].action = string.format("{ to(%f,%f,%s) }", v_vel*sustain, decay, decay_shape)
+  else
+    crow.output[envelope_o].action = string.format("{ to(%f,%f,%s), to(%f,%f,%s) }", v_vel, attack, attack_shape, v_vel*sustain, decay, decay_shape)
+  end
+  crow.output[envelope_o]()
+  clock.run(function()
+    clock.sleep(clock.get_beat_sec() * length)
+    if self.channel_map[voice] == now then
+      self.channel_map[voice] = 0
+      crow.output[envelope_o].action = string.format("{ to(%f,%f,%s) }", 0, release, release_shape)
+      crow.output[envelope_o]()
+    end
+  end)
 end
