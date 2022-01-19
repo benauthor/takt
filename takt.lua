@@ -491,6 +491,7 @@ local function set_loop(tr, start, len)
     data[data.pattern].track.start[tr] = get_step(start)
     data[data.pattern].track.len[tr] = get_step(len) + 15
     sync_tracks(tr)
+    print("set loop", data[data.pattern].track.start[tr], data[data.pattern].track.len[tr])
 end
 
 local function get_tr_start( tr )
@@ -1002,7 +1003,7 @@ local controls = {
   [10] = function(z) if z == 1 then set_view(view.sampling and (data.selected[1] < 8 and 'steps_engine' or 'steps_midi') or 'sampling') end  end,
   [11] = function(z) if z == 1 then set_view(view.patterns and (data.selected[1] < 8 and 'steps_engine' or 'steps_midi') or 'patterns') end end,
   [13] = function(z) MOD = z == 1 and true or false if z == 0 then copy = { false, false } end end,
-  [15] = function(z) ALT = z == 1 and true or false end,
+  [15] = function(z) ALT = z == 1 and true or false print("key ALT", ALT) end,
   [16] = function(z) SHIFT = z == 1 and true or false end,
 }
 
@@ -1353,7 +1354,14 @@ function g.key(x, y, z)
     if z==1 and hold[y] then
       holdmax[y] = 0
     end
+    --if view.engine then
+        --print("engine view hold keys")
     hold[y] = hold[y] + (z * 2 - 1)
+    --elseif view.midi then
+    --    print("midi view hold keys")
+    --    hold[y+7] = hold[y+7] + (z * 2 - 1)
+    --end
+    print("hold", y, hold[y])
     hold['p'] = hold['p'] + (z * 2 - 1)
     if hold[y] > holdmax[y] then
       holdmax[y] = hold[y]
@@ -1361,6 +1369,7 @@ function g.key(x, y, z)
     if not view.patterns then
       local y = data.selected[1] > 7 and y + 7 or y
       if SHIFT then
+        print("SHIFT")
         if z == 1 then
           if x == 16 then
               mute_track(y)
@@ -1370,12 +1379,30 @@ function g.key(x, y, z)
             end
           end
         end
-      elseif ALT then 
-          if hold[y] == 1 then
-            first[y] = x
-          elseif hold[y] == 2 then
-            second[y] = x
-            set_loop(y, first[y], second[y])
+      elseif ALT then -- @chailight additional logic to allow loop length setting in midi view
+          --print("ALT: set loop length")
+          if view.steps_midi then 
+            --print("midi view") 
+            --print("y", y)
+            if hold[y-7] == 1 then
+              first[y] = x
+              --print("first", x)
+            elseif hold[y-7] == 2 then
+              second[y] = x
+              --print("second", x)
+              set_loop(y, first[y], second[y])
+            end
+          elseif view.steps_engine then 
+            --print("engine view") 
+            --print("y", y)
+            if hold[y] == 1 then
+              first[y] = x
+              --print("first", x)
+            elseif hold[y] == 2 then
+              second[y] = x
+              --print("second", x)
+              set_loop(y, first[y], second[y])
+            end
           end
       elseif MOD then
         if not copy[1] then 
@@ -1462,6 +1489,7 @@ function g.redraw()
     for x = 1, 16 do 
       if not view.patterns then
         local yy = data.selected[1] > 7 and y + 7 or y 
+        --print("yy", yy)
         if SHIFT then         
             if y < 8 and x < 8 then
               g:led(x, y, x == 5 and 6 or 3)
