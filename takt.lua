@@ -81,6 +81,12 @@ local chord_names = {"Major", "Minor", "Dominant 7", "Major 7", "Minor 7", "Mino
 
 local wsyn_params = {"Curve", "Ramp", "FM index", "FM env", "FM ratio numerator", "FM ratio denominator", "LPG time", "LPG symmetry"}
 ASL_SHAPES = {'linear','sine','logarithmic','exponential','now'}
+
+local scale_names = {}
+local my_scale_type = "major"
+local my_scale_root = "C" 
+--local my_scale = music.generate_scale(24,"minor",9)
+my_scale = music.generate_scale_of_length(24, "major", 16)
 --
 local hold_time, down_time, blink = 0, 0, 1
 local ALT, SHIFT, MOD, PATTERN_REC, K1_hold, K3_hold, ptn_copy, ptn_change_pending = false, false, false, false, false, false, false, false
@@ -135,7 +141,7 @@ local rules = {
   [15] = {'RND NOTE', function(tr, step) 
     data[data.pattern][tr].params[step].note = math.random(24,120) return true end },
   [16] = {'+- NOTE', function(tr, step) 
-    data[data.pattern][tr].params[step].note = util.clamp(data[data.pattern][tr].params[step].note + math.random(-20,20),24,120) return true end },
+    data[data.pattern][tr].params[step].note = music.snap_note_to_array(util.clamp(data[data.pattern][tr].params[step].note + math.random(-20,20),24,120), my_scale) return true end },
   [17] = {'RND START', function(tr, step)
     if tr < 8 then
       local max_frame = params:lookup_param("end_frame_" .. data[data.pattern][tr].params[step].sample).controlspec.maxval
@@ -1041,6 +1047,10 @@ function init()
       midi_out_devices[i] = midi.connect(i)
       midi_out_devices[i].event = midi_event
   end
+
+  for i = 1, #music.SCALES do
+    table.insert(scale_names, string.lower(music.SCALES[i].name))
+  end
     
   math.randomseed(os.time())
 
@@ -1052,6 +1062,23 @@ function init()
     params:set_action('load_p', function(x) fileselect.enter(norns.state.data, load_project) end)
     params:add_trigger('new', "+ New" )
     params:set_action('new', function(x) init() end)
+    params:add_separator()
+    params:add{type = "option", id = "scale_mode", name = "scale mode",
+        options = scale_names, default = 5,
+        action = function() build_scale() end}
+    params:add{type = "number", id = "root_note", name = "root note",
+        min = 0, max = 127, default = 60, formatter = function(param) return music.note_num_to_name(param:get(), true) end,
+        action = function() build_scale() end}
+    --params:add_option("scale","scale",{"major","minor"},1)
+    --params:set_action("scale",function(x)
+    --   my_scale_type = x 
+    --    my_scale = music.generate_scale(my_scale_root,x,4)
+    --end)
+    --params:add_option("root","root",music.NOTE_NAMES,1)
+    --params:set_action("root",function(x)
+    --    my_scale_root = x 
+    --    my_scale = music.generate_scale(x,my_scale_type,4)
+    --end)
     params:add_separator()
     params:add_option("takt_crow","crow output",{"no","yes"},1)
     params:add_option("takt_jf","jf output",{"no","yes"},1)
@@ -1814,3 +1841,26 @@ function crow_player:play_note(note, vel, length, channel, track)
 end
 -- norns.crow.send( "for n=1,4 do ii.txo.tr_pulse(n) end" )
 -- crow.output[1].action = "lfo(1.25,10)"
+
+function build_scale()
+  my_scale = music.generate_scale_of_length(params:get("root_note"), params:get("scale_mode"), 16)
+  local num_to_add = 16 - #my_scale
+  for i = 1, num_to_add do
+    table.insert(my_scale, my_scale[16 - num_to_add])
+  end
+end
+
+--function index_of(array, value)
+--    for i, v in ipairs(array) do
+--        if v == value then
+--            return i
+--        end
+--    end
+--    return nil
+--end
+
+--function note_name_to_number(name,octave)
+--    note_number = index_of(music.NOTE_NAMES,name) + 24 * octave * 12
+--    print("note to name", name, note_number)
+--    return number
+--end
