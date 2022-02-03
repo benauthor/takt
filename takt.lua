@@ -695,6 +695,11 @@ local function seqrun(counter)
                         end
                       end
                   end
+              elseif params:get("takt_crow")==2 and step_param.device == 7 then 
+                  crow.output[1].volts = (step_param.note-60)/12
+                  crow.output[2].execute() -- this will be a trigger? what if we want a gate = note length?
+                  --crow.output[3].volts = seq.get_amp_crow() -- get a value from the CC row?
+                  --crow.output[4].volts = seq.get_release_crow() - get a value from the CC row?
               else
                   set_cc(tr, step_param)
                   
