@@ -1595,7 +1595,7 @@ function g.redraw()
 
 end
 function crow_add_params()
-    params:add_group("crow options", 18)
+    params:add_group("crow options", 19)
     params:add_control("crow/attack_time", "attack", controlspec.new(0.0001, 3, 'exp', 0, 0.1, "s"))
     params:add_option("crow/attack_shape", "attack shape", ASL_SHAPES, 3)
     params:add_control("crow/decay_time", "decay", controlspec.new(0.0001, 10, 'exp', 0, 1.0, "s"))
