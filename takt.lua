@@ -896,6 +896,7 @@ local step_params = {
   end,
   [7] = function(tr, s, d) -- volume
         data[data.pattern][tr].params[s].amp = amp_map:map(util.clamp(amp_map:unmap(data[data.pattern][tr].params[s].amp) + d / 200, 0,1 ))
+        print("vol",data[data.pattern][tr].params[s].amp)
   end,
   [8] = function(tr, s, d) -- pan
         data[data.pattern][tr].params[s].pan = util.clamp(data[data.pattern][tr].params[s].pan + d / 20 , -1, 1)
@@ -1111,6 +1112,10 @@ function init()
     end
     lfo.init()
       
+    params:add_separator()
+
+    main_screen_control_params()
+
     params:add_separator()
       
     for i = 1, 14 do
@@ -1594,6 +1599,27 @@ function g.redraw()
   g:refresh()
 
 end
+function main_screen_control_params()
+    params:add_control("main_screen_amp", "Track Volume", controlspec.new(-64, 16, 'lin', 0.1, -2, ""))
+    params:set_action("main_screen_amp",function(x)
+        local tr = data.selected[1]
+        local s = data.selected[2] and data.selected[2] or tostring(tr)
+        --print("data.pattern",data.pattern)
+        --print("track",data.selected[1])
+        --print("step",data.selected[2])
+        data[data.pattern][tr].params[s].amp = x
+        --data[data.pattern][my_tr].params[1].amp = x
+        --local my_redraw_params = get_params(my_tr) 
+        --print(my_redraw_params['amp'])
+    end)
+    params:add_control("main_screen_rev", "Track Reverb", controlspec.new(-64, 16, 'lin', 0.1, -2, ""))
+    params:set_action("main_screen_rev",function(x)
+        local tr = data.selected[1]
+        local s = data.selected[2] and data.selected[2] or tostring(tr)
+        data[data.pattern][tr].params[s].reverb_send = x
+    end)
+end
+
 function crow_add_params()
     params:add_group("crow options", 19)
     params:add_control("crow/attack_time", "attack", controlspec.new(0.0001, 3, 'exp', 0, 0.1, "s"))
