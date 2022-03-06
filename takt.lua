@@ -738,6 +738,7 @@ local function midi_event(d)
   local tr = data.selected[1] 
 
   local pos = data[data.pattern].track.pos[tr]
+  local step_param = get_params(tr, pos, true)
   
   -- REC TOGGLE
   if msg.cc == REC_CC and msg.val == 127 then
@@ -747,9 +748,22 @@ local function midi_event(d)
     --engine.noteOff(tr)
   -- Note on
   elseif msg.type == "note_on" then
+    print("note_on", msg.note, msg.vel)
     if not view.sampling then
-      engine.noteOff(tr)
-      engine.noteOn(tr, music.note_num_to_freq(msg.note), msg.vel / 127, data[data.pattern][tr].params[tostring(tr)].sample)
+      if tr < 8 then
+          engine.noteOff(tr)
+          engine.noteOn(tr, music.note_num_to_freq(msg.note), msg.vel / 127, data[data.pattern][tr].params[tostring(tr)].sample)
+      elseif params:get("takt_jf")==2 and step_param.device == 5 then 
+          crow.ii.jf.play_note((msg.note-60)/12,(msg.vel/127) * 10)
+      elseif params:get("takt_wsyn")==2 and step_param.device == 6 then 
+          --crow.ii.wsyn.lpg_time(util.linlin(1,127,5,-5,step_param.length))
+          crow.ii.wsyn.play_note((msg.note-60)/12,(msg.vel/127) * 5)
+      elseif params:get("takt_crow")==2 and step_param.device == 7 then 
+          crow.output[1].volts = (msg.note-60)/12
+          crow.output[2].execute() -- this will be a trigger? what if we want a gate = note length?
+      else
+          midi_out_devices[step_parame.device]:note_on( msg.note, msg.vel, step_param.channel )
+      end
       --if sequencer_metro.is_running and PATTERN_REC then 
       if is_running and PATTERN_REC then --@chailight unifying on a single is_running flag
         place_note(tr, pos, msg.note)
@@ -1113,9 +1127,7 @@ function init()
     lfo.init()
       
     params:add_separator()
-
     main_screen_control_params()
-
     params:add_separator()
       
     for i = 1, 14 do
@@ -1130,6 +1142,7 @@ function init()
     redraw_params[2] = data[1][1].params[tostring(1)]
 
     timber.init()
+
     sampler.init()
     ui.init()
 
@@ -1373,11 +1386,22 @@ function g.key(x, y, z)
     local tr = data.selected[1]
     local device = data[data.pattern][tr].params[tr].device
     local note = linn.grid_key(x, y, z, device and midi_out_devices[device])
+    local vel = 60
     --@chailight support for jf and wsyn output devices needed here
     local pos = data[data.pattern].track.pos[tr]
     if note then 
       if tr < 8 then
         engine.noteOn(data.selected[1], music.note_num_to_freq(note), 1, data[data.pattern][data.selected[1]].params[tr].sample)
+      elseif params:get("takt_jf")==2 and device == 5 then 
+          crow.ii.jf.play_note((note-60)/12,(vel/127) * 10)
+      elseif params:get("takt_wsyn")==2 and device == 6 then 
+          --crow.ii.wsyn.lpg_time(util.linlin(1,127,5,-5,step_param.length))
+          crow.ii.wsyn.play_note((note-60)/12,(vel/127) * 5)
+      elseif params:get("takt_crow")==2 and device == 7 then 
+          crow.output[1].volts = (note-60)/12
+          crow.output[2].execute() -- this will be a trigger? what if we want a gate = note length?
+      else
+          midi_out_devices[step_parame.device]:note_on( msg.note, msg.vel, step_param.channel )
       end
       --if sequencer_metro.is_running and PATTERN_REC then 
       if is_running and PATTERN_REC then 
@@ -1600,24 +1624,38 @@ function g.redraw()
 
 end
 function main_screen_control_params()
-    params:add_control("main_screen_amp", "Track Volume", controlspec.new(-64, 16, 'lin', 0.1, -2, ""))
-    params:set_action("main_screen_amp",function(x)
-        local tr = data.selected[1]
-        local s = data.selected[2] and data.selected[2] or tostring(tr)
-        --print("data.pattern",data.pattern)
-        --print("track",data.selected[1])
-        --print("step",data.selected[2])
-        data[data.pattern][tr].params[s].amp = x
-        --data[data.pattern][my_tr].params[1].amp = x
-        --local my_redraw_params = get_params(my_tr) 
-        --print(my_redraw_params['amp'])
-    end)
-    params:add_control("main_screen_rev", "Track Reverb", controlspec.new(-64, 16, 'lin', 0.1, -2, ""))
-    params:set_action("main_screen_rev",function(x)
-        local tr = data.selected[1]
-        local s = data.selected[2] and data.selected[2] or tostring(tr)
-        data[data.pattern][tr].params[s].reverb_send = x
-    end)
+    --params:add_separator("per track controls")
+    params:add_group("track controls", 28)
+    for i = 1,7 do
+        params:add_control(string.format("vol_tr_%i",i) , string.format("Track %i Volume",i), controlspec.new(-64, 16, 'lin', 0.1, -2, ""))
+        params:set_action(string.format("vol_tr_%i",i),function(x)
+            --local tr = data.selected[1]
+            local tr = i 
+            local s = data.selected[2] and data.selected[2] or tostring(tr)
+            data[data.pattern][tr].params[s].amp = x
+        end)
+        params:add_control(string.format("reverb_tr_%i",i), string.format("Track %i Reverb",i), controlspec.new(-64, 16, 'lin', 0.1, -2, ""))
+        params:set_action(string.format("reverb_tr_%i",i),function(x)
+            --local tr = data.selected[1]
+            local tr = i 
+            local s = data.selected[2] and data.selected[2] or tostring(tr)
+            data[data.pattern][tr].params[s].reverb_send = x
+        end)
+        params:add_control(string.format("delay_tr_%i",i), string.format("Track %i Delay",i), controlspec.new(-64, 16, 'lin', 0.1, -2, ""))
+        params:set_action(string.format("delay_tr_%i",i),function(x)
+            --local tr = data.selected[1]
+            local tr = i 
+            local s = data.selected[2] and data.selected[2] or tostring(tr)
+            data[data.pattern][tr].params[s].delay_send = x
+        end)
+        params:add_control(string.format("cutoff_tr_%i",i), string.format("Track %i Cutoff",i), controlspec.new(0.1, 20000, 'exp', 0.1, 10000, ""))
+        params:set_action(string.format("cutoff_tr_%i",i),function(x)
+            --local tr = data.selected[1]
+            local tr = i 
+            local s = data.selected[2] and data.selected[2] or tostring(tr)
+            data[data.pattern][tr].params[s].filter_freq = x
+        end)
+    end
 end
 
 function crow_add_params()
