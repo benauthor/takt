@@ -487,7 +487,7 @@ function ui.draw_note(x, y, params_data, index, ui_index, lock)
   screen.level(lvl)
   screen.move(x + 9, y + 15)
   if params_data.device == 7 then
-      screen.text_center(string.format("%.2f",(params_data.note-60)/12))
+      screen.text_center(string.format("%.2f",(params_data.note-25)/12))
   else
       screen.text_center(oct ..  note_num_to_name(note_name):gsub('♯', '#'))
   end
