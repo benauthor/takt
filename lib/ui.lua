@@ -442,12 +442,21 @@ function ui.draw_waveform(x, y, params_data, ui_index, meta, lock)
 end
 
 function ui.draw_note(x, y, params_data, index, ui_index, lock)
+  print("device", params_data.device)
   set_brightness(index, ui_index)
   screen.rect(x,  y, 20, 17)
   screen.fill()
   local offset = params_data.detune_cents and util.linlin(-100,100,-3,3, params_data.detune_cents) or 0
   screen.level(0)
-  if not params_data.chord or params_data.chord <= 0 then 
+  if params_data.device == 7 then
+      if ui_index == 2 then
+        screen.level(15)
+      else
+        screen.level(0)
+      end
+      screen.move(x + 9, y + 7)
+      screen.text_center("V")
+  elseif not params_data.chord or params_data.chord <= 0 then 
       if ui_index == 2 then -- work out how to restrict this to the midi screen
         screen.level(15)
       else
@@ -466,7 +475,7 @@ function ui.draw_note(x, y, params_data, index, ui_index, lock)
         screen.level(0)
       end
       screen.move(x + 9, y + 7)
-     screen.text_center(chord_name_lookup[tonumber(params_data.chord)])
+      screen.text_center(chord_name_lookup[tonumber(params_data.chord)])
   end
   
   local note_name = params_data.note
@@ -477,7 +486,11 @@ function ui.draw_note(x, y, params_data, index, ui_index, lock)
 
   screen.level(lvl)
   screen.move(x + 9, y + 15)
-  screen.text_center(oct ..  note_num_to_name(note_name):gsub('♯', '#'))
+  if params_data.device == 7 then
+      screen.text_center(string.format("%.2f",(params_data.note-60)/12))
+  else
+      screen.text_center(oct ..  note_num_to_name(note_name):gsub('♯', '#'))
+  end
   screen.stroke()
  
 end

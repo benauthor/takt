@@ -697,7 +697,8 @@ local function seqrun(counter)
                   end
               elseif params:get("takt_crow")==2 and step_param.device == 7 then 
                   crow.output[1].volts = (step_param.note-60)/12
-                  crow.output[2].execute() -- this will be a trigger? what if we want a gate = note length?
+                  crow.output[2].action = string.format("pulse(%.3f,10)", (step_param.length* 60/data[data.pattern].bpm/10))
+                  crow.output[2]() -- this will be a trigger? what if we want a gate = note length?
                   --crow.output[3].volts = seq.get_amp_crow() -- get a value from the CC row?
                   --crow.output[4].volts = seq.get_release_crow() - get a value from the CC row?
               else
@@ -760,6 +761,7 @@ local function midi_event(d)
           crow.ii.wsyn.play_note((msg.note-60)/12,(msg.vel/127) * 5)
       elseif params:get("takt_crow")==2 and step_param.device == 7 then 
           crow.output[1].volts = (msg.note-60)/12
+          crow.output[2].action = string.format("pulse(%.3f,10)", (step_param.length* 60/data[data.pattern].bpm/10))
           crow.output[2].execute() -- this will be a trigger? what if we want a gate = note length?
       else
           midi_out_devices[step_parame.device]:note_on( msg.note, msg.vel, step_param.channel )
@@ -1386,7 +1388,8 @@ function g.key(x, y, z)
     local tr = data.selected[1]
     local device = data[data.pattern][tr].params[tr].device
     local note = linn.grid_key(x, y, z, device and midi_out_devices[device])
-    local vel = 60
+    local vel = data[data.pattern][tr].params[tr].velocity
+    local len  = data[data.pattern][tr].params[tr].length
     --@chailight support for jf and wsyn output devices needed here
     local pos = data[data.pattern].track.pos[tr]
     if note then 
@@ -1399,6 +1402,7 @@ function g.key(x, y, z)
           crow.ii.wsyn.play_note((note-60)/12,(vel/127) * 5)
       elseif params:get("takt_crow")==2 and device == 7 then 
           crow.output[1].volts = (note-60)/12
+          crow.output[2].action = string.format("pulse(%.3f,10)", (len * 60/data[data.pattern].bpm/10))
           crow.output[2].execute() -- this will be a trigger? what if we want a gate = note length?
       else
           midi_out_devices[step_parame.device]:note_on( msg.note, msg.vel, step_param.channel )
