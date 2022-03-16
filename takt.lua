@@ -355,6 +355,7 @@ local function set_locks(step_param)
       end
     end
 end
+
 local function set_cc(tr, step_param)
   for i = 1, 6 do
     local cc = step_param['cc_' .. i] 
@@ -696,7 +697,7 @@ local function seqrun(counter)
                       end
                   end
               elseif params:get("takt_crow")==2 and step_param.device == 7 then 
-                  crow.output[1].volts = (step_param.note-60)/12
+                  crow.output[1].volts = (step_param.note-0)/12
                   crow.output[2].action = string.format("pulse(%.3f,10)", (step_param.length* 60/data[data.pattern].bpm/10))
                   crow.output[2]() -- this will be a trigger? what if we want a gate = note length?
                   --crow.output[3].volts = seq.get_amp_crow() -- get a value from the CC row?
@@ -760,7 +761,7 @@ local function midi_event(d)
           --crow.ii.wsyn.lpg_time(util.linlin(1,127,5,-5,step_param.length))
           crow.ii.wsyn.play_note((msg.note-60)/12,(msg.vel/127) * 5)
       elseif params:get("takt_crow")==2 and step_param.device == 7 then 
-          crow.output[1].volts = (msg.note-60)/12
+          crow.output[1].volts = (msg.note-0)/12
           crow.output[2].action = string.format("pulse(%.3f,10)", (step_param.length* 60/data[data.pattern].bpm/10))
           crow.output[2].execute() -- this will be a trigger? what if we want a gate = note length?
       else
@@ -800,7 +801,7 @@ local track_params = {
       if div ~= data[data.pattern].track.div[tr] then sync_tracks(tr) end
       
   end,
-  [-2] = function(tr, s, d) -- midi out bpm scale
+  [-2] = function(tr, s, d) -- midi out bpm scale -- @chailight - what is the equiv in global clock world?
     data[data.pattern].sync_div = util.clamp(data[data.pattern].sync_div + d, 0, 7)
     if data[data.pattern].sync_div == 0 then midi_clock.send = false else midi_clock.send = true end
 end,
@@ -813,7 +814,16 @@ end,
 local midi_step_params = {
 
   [1] = function(tr, s, d) -- note
-      data[data.pattern][tr].params[s].note = util.clamp(data[data.pattern][tr].params[s].note + d, 25, 127)
+      -- @chailight adjusted for crow raw voltage output
+      print("device", data[data.pattern][tr].params[s].device)
+      print("output", params:get("crow/output_quant"))
+      if data[data.pattern][tr].params[s].device == 7 and params:get("crow/output_quant") == 2 then
+        print("note", data[data.pattern][tr].params[s].note)
+        print("delta", d) 
+        data[data.pattern][tr].params[s].note = util.clamp(data[data.pattern][tr].params[s].note + d, 0, 120)
+      else
+        data[data.pattern][tr].params[s].note = util.clamp(data[data.pattern][tr].params[s].note + d, 25, 127)
+      end
   end,
   [2] = function(tr, s, d) -- chord
       data[data.pattern][tr].params[s].chord = util.clamp(data[data.pattern][tr].params[s].chord + d, -1, 26)
@@ -1401,7 +1411,7 @@ function g.key(x, y, z)
           --crow.ii.wsyn.lpg_time(util.linlin(1,127,5,-5,step_param.length))
           crow.ii.wsyn.play_note((note-60)/12,(vel/127) * 5)
       elseif params:get("takt_crow")==2 and device == 7 then 
-          crow.output[1].volts = (note-60)/12
+          crow.output[1].volts = (note-0)/12
           crow.output[2].action = string.format("pulse(%.3f,10)", (len * 60/data[data.pattern].bpm/10))
           crow.output[2].execute() -- this will be a trigger? what if we want a gate = note length?
       else
@@ -1663,7 +1673,14 @@ function main_screen_control_params()
 end
 
 function crow_add_params()
-    params:add_group("crow options", 19)
+    params:add_group("crow options", 20)
+    params:add {
+        type = "option",
+        id = "crow/output_quant",
+        name = "output quantisation",
+        options = {"note", "raw"},
+        default = 1,
+    }
     params:add_control("crow/attack_time", "attack", controlspec.new(0.0001, 3, 'exp', 0, 0.1, "s"))
     params:add_option("crow/attack_shape", "attack shape", ASL_SHAPES, 3)
     params:add_control("crow/decay_time", "decay", controlspec.new(0.0001, 10, 'exp', 0, 1.0, "s"))
@@ -1864,7 +1881,7 @@ crow_player = {
 }
 
 function crow_player:play_note(note, vel, length, channel, track)
-  local v8 = (note - 60)/12
+  local v8 = (note - 0)/12
   local v_vel = (vel/127) * 10
   local pitch_o = 0;
   local envelope_o = 0;
