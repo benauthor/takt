@@ -79,6 +79,11 @@ local lfo_targets = {
 
 local chord_names = {"Major", "Minor", "Dominant 7", "Major 7", "Minor 7", "Minor Major 7", "Major 6", "Minor 6", "Major 69", "Minor 69", "Ninth", "Major 9", "Minor 9", "Eleventh", "Major 11", "Minor 11", "Thirteenth", "Major 13", "Minor 13", "Sus4", "Seventh sus4", "Diminished", "Diminished 7", "Half Diminished 7", "Augmented", "Augmented 7"}
 
+local crow_out_1_offset_v = 0
+local crow_out_2_offset_v = 0
+local crow_out_3_offset_v = 0
+local crow_out_4_offset_v = 0
+
 local wsyn_params = {"Curve", "Ramp", "FM index", "FM env", "FM ratio numerator", "FM ratio denominator", "LPG time", "LPG symmetry"}
 ASL_SHAPES = {'linear','sine','logarithmic','exponential','now'}
 
@@ -697,7 +702,7 @@ local function seqrun(counter)
                       end
                   end
               elseif params:get("takt_crow")==2 and step_param.device == 7 then 
-                  crow.output[1].volts = (step_param.note-0)/12
+                  crow.output[1].volts = (step_param.note-0)/12 + crow_out_1_offset_v
                   crow.output[2].action = string.format("pulse(%.3f,10)", (step_param.length* 60/data[data.pattern].bpm/10))
                   crow.output[2]() -- this will be a trigger? what if we want a gate = note length?
                   --crow.output[3].volts = seq.get_amp_crow() -- get a value from the CC row?
@@ -761,7 +766,7 @@ local function midi_event(d)
           --crow.ii.wsyn.lpg_time(util.linlin(1,127,5,-5,step_param.length))
           crow.ii.wsyn.play_note((msg.note-60)/12,(msg.vel/127) * 5)
       elseif params:get("takt_crow")==2 and step_param.device == 7 then 
-          crow.output[1].volts = (msg.note-0)/12
+          crow.output[1].volts = (msg.note-0)/12 + crow_out_1_offset_v 
           crow.output[2].action = string.format("pulse(%.3f,10)", (step_param.length* 60/data[data.pattern].bpm/10))
           crow.output[2].execute() -- this will be a trigger? what if we want a gate = note length?
       else
@@ -815,11 +820,11 @@ local midi_step_params = {
 
   [1] = function(tr, s, d) -- note
       -- @chailight adjusted for crow raw voltage output
-      print("device", data[data.pattern][tr].params[s].device)
-      print("output", params:get("crow/output_quant"))
+      --print("device", data[data.pattern][tr].params[s].device)
+      --print("output", params:get("crow/output_quant"))
       if data[data.pattern][tr].params[s].device == 7 and params:get("crow/output_quant") == 2 then
-        print("note", data[data.pattern][tr].params[s].note)
-        print("delta", d) 
+        --print("note", data[data.pattern][tr].params[s].note)
+        --print("delta", d) 
         data[data.pattern][tr].params[s].note = util.clamp(data[data.pattern][tr].params[s].note + d, 0, 120)
       else
         data[data.pattern][tr].params[s].note = util.clamp(data[data.pattern][tr].params[s].note + d, 25, 127)
@@ -839,7 +844,7 @@ local midi_step_params = {
   end,
   --@chailight increase the options for the device to enable selecting JF, WSyn and crow 
   [6] = function(tr, s, d) -- device
-      data[data.pattern][tr].params[s].device = util.clamp(data[data.pattern][tr].params[s].device + d, 1, 7)
+      data[data.pattern][tr].params[s].device = util.clamp(data[data.pattern][tr].params[s].device + d, 1, 10)
   end,
   [7] = function(tr, s, d) -- pgm
       data[data.pattern][tr].params[s].program_change = util.clamp(data[data.pattern][tr].params[s].program_change + d, -1, 127)
@@ -1112,7 +1117,7 @@ function init()
     --    my_scale = music.generate_scale(x,my_scale_type,4)
     --end)
     params:add_separator()
-    params:add_option("takt_crow","crow output",{"no","yes"},1)
+    params:add_option("takt_crow","crow output",{"no","full voice", "2 voices", "jf + crow"},1)
     params:add_option("takt_jf","jf output",{"no","yes"},1)
     params:add_option("takt_wsyn","wsyn output",{"no","yes"},1)
     params:set_action("takt_jf",function(x)
@@ -1411,7 +1416,7 @@ function g.key(x, y, z)
           --crow.ii.wsyn.lpg_time(util.linlin(1,127,5,-5,step_param.length))
           crow.ii.wsyn.play_note((note-60)/12,(vel/127) * 5)
       elseif params:get("takt_crow")==2 and device == 7 then 
-          crow.output[1].volts = (note-0)/12
+          crow.output[1].volts = (note-0)/12 + crow_out_1_offset_v 
           crow.output[2].action = string.format("pulse(%.3f,10)", (len * 60/data[data.pattern].bpm/10))
           crow.output[2].execute() -- this will be a trigger? what if we want a gate = note length?
       else
@@ -1680,6 +1685,42 @@ function crow_add_params()
         name = "output quantisation",
         options = {"note", "raw"},
         default = 1,
+    }
+    params:add{
+    type = "option",
+    id = "crow_pitch_range_1",
+    name = "output 1 range",
+    options = {"0-10V", "+/-5V"},
+    action = function(val)
+      crow_out_1_offset_v = val and 0 or -5
+    end,
+    }
+    params:add{
+    type = "option",
+    id = "crow_pitch_range_2",
+    name = "output 2 range",
+    options = {"0-10V", "+/-5V"},
+    action = function(val)
+      crow_out_2_offset_v = val and 0 or -5
+    end,
+    }
+    params:add{
+    type = "option",
+    id = "crow_pitch_range_3",
+    name = "output 3 range",
+    options = {"0-10V", "+/-5V"},
+    action = function(val)
+      crow_out_3_offset_v = val and 0 or -5
+    end,
+    }
+    params:add{
+    type = "option",
+    id = "crow_pitch_range_4",
+    name = "output 4 range",
+    options = {"0-10V", "+/-5V"},
+    action = function(val)
+      crow_out_4_offset_v = val and 0 or -5
+    end,
     }
     params:add_control("crow/attack_time", "attack", controlspec.new(0.0001, 3, 'exp', 0, 0.1, "s"))
     params:add_option("crow/attack_shape", "attack shape", ASL_SHAPES, 3)
