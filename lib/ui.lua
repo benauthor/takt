@@ -20,10 +20,15 @@ local midi_name_lookup = {
 local chord_name_lookup = {"M", "m", "D7", "M7", "m7", "mM7", "M6", "m6", "M69", "m69", "D9", "M9", "m9", "D11", "M11", "m11", "D13", "M13", "m13", "Sus4", "7Sus4", "Dim", "Dim7", "hD7", "Aug", "A7" }
 
 --@chailight wsyn param display
-local wsyn_params_lookup = {"Curve", "Ramp", "FM i", "FM e", "RN", "RD", "Time"}
-local jf_crow_params_lookup = {"CR1", "CR2", "CR3", "CR4", "--", "--", "--"}
-local crow_full_voice_params_lookup = {"CR4", "A", "D", "S", "R", "Port", "--"}
+local wsyn_params_lookup = {"--", "Ramp", "FM i", "FM e", "RN", "RD", "Time"}
+local jf_crow_params_lookup = {"--", "CR1", "CR2", "CR3", "CR4", "--", "--"}
+local crow_full_voice_params_lookup = {"--","CR4", "A", "D", "S", "R", "Port"}
 local crow_2_voice_params_lookup = {"--", "A", "D", "S", "R", "Port", "--"}
+
+local wsyn_on = {false,false,false,false,false,false,false}
+local crow_full_voice_on = {false,false,false,false,false,false,false}
+local crow_2_voice_on = {false,false,false,false,false,false,false}
+local jf_crow_on = {false,false,false,false,false,false,false}
 
 local dividers  = {[0] = 'OFF', '1/8', '1/4', '1/2', '3/4', '--', '3/2', '2x' } 
 
@@ -579,7 +584,7 @@ function ui.tile(index, name, value, ui_index, lock, custom)
                 disp_value = "CRW12" 
             elseif value == 9 and params:get("takt_crow") == 3 then 
                 disp_value = "CRW34" 
-            elseif value == 9 and params:get("takt_crow") == 4 then 
+            elseif value == 10 and params:get("takt_crow") == 4 then 
                 disp_value = "JFCW" 
             else
                 disp_value = disp_value 
@@ -783,9 +788,6 @@ end
 
 --@chailight need to pass in the track because different tracks need to display parameters per device
 function ui.midi_screen(tr, params_data, ui_index, tracks, steps)
-   local wsyn_on = false
-   local crow_full_voice_on = false
-   local crow_2_voice_on = false
    local tile = {
       {1, 'NOTE', function(i, _, lock) ui.draw_note(1, 8, params_data,i, ui_index, lock) end },
       {2, 'VEL',  params_data.velocity },
@@ -828,32 +830,53 @@ function ui.midi_screen(tr, params_data, ui_index, tracks, steps)
               v[3] = util.round(util.linlin(1, 256, 1, 16,v[3]),0.01)
             end
             if v[1] == 5 and v[3] == 6 and params:get("takt_wsyn") == 2 then
-                wsyn_on = true
+                wsyn_on[tr] = true
                 ui.tile(v[1], v[2], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
             elseif v[1] == 5 and v[3] == 7 and params:get("takt_crow") == 2 then
-                crow_full_voice_on = true
+                crow_full_voice_on[tr] = true
                 ui.tile(v[1], v[2], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
             elseif v[1] == 5 and v[3] == 8 and params:get("takt_crow") == 3 then
-                crow_2_voice_on = true
+                crow_2_voice_on[tr] = true
                 ui.tile(v[1], v[2], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
-            elseif v[1] > 6 and wsyn_on then 
+            elseif v[1] == 5 and v[3] == 9 and params:get("takt_crow") == 3 then
+                crow_2_voice_on[tr] = true
+                ui.tile(v[1], v[2], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
+            elseif v[1] == 5 and v[3] == 10 and params:get("takt_crow") == 4 then
+                jf_crow_on[tr] = true
+                ui.tile(v[1], v[2], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
+            elseif v[1] > 6 and wsyn_on[tr] then 
                 ui.tile(v[1], wsyn_params_lookup[v[1]-5], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
-            elseif v[1] > 6 and crow_full_voice_on then 
+            elseif v[1] > 6 and crow_full_voice_on[tr] then 
                 ui.tile(v[1], crow_full_voice_params_lookup[v[1]-5], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
-            elseif v[1] > 6 and crow_2_voice_on then 
+            elseif v[1] > 6 and crow_2_voice_on[tr] then 
                 ui.tile(v[1], crow_2_voice_params_lookup[v[1]-5], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
+            elseif v[1] > 6 and jf_crow_on[tr] then 
+                ui.tile(v[1], jf_crow_params_lookup[v[1]-5], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
             else
                 local lfo_name = ""
                 local lfo_tile = 0 
                 for i = 1, 4 do
                     local target = params:get(i .. "lfo_target") 
-                    if target - 1 - ((tr - 8) * 6) == (v[1] - 6) then
+                    local tile_offset = 6
+                    --if v[3] == 10 and params:get("takt_crow") == 4 then
+                    if jf_crow_on[tr]  then
+                        --print("adjusting for crow output")
+                        target = target - 6
+                        tile_offset = 1
+                    end
+                    --print("lfo", i, "target", target - 1 - ((tr - 8) * 10), "tile", v[1]-tile_offset)
+                    if target - 1 - ((tr - 8) * 10) == (v[1] - tile_offset) then -- adjust to allow for crow output labels
                         lfo_name = "lfo " .. i 
                         lfo_tile = target - 1
+                        --print("lfo_tile", lfo_tile)
                     end
                 end
                 if lfo_tile > 0 then
+                    --if jf_crow_on[tr] then
+                    --    ui.tile(v[1]+5, v[2], lfo_name, ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
+                    --else
                     ui.tile(v[1], v[2], lfo_name, ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
+                    --end
                 else
                     ui.tile(v[1], v[2], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
                 end
