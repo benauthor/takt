@@ -39,70 +39,42 @@ local lfo_targets = {
     "CC4 8",
     "CC5 8",
     "CC6 8",
-    "CR1 8",
-    "CR2 8",
-    "CR3 8",
-    "CR4 8",
     "CC1 9",
     "CC2 9",
     "CC3 9",
     "CC4 9",
     "CC5 9",
     "CC6 9",
-    "CR1 9",
-    "CR2 9",
-    "CR3 9",
-    "CR4 9",
     "CC1 10",
     "CC2 10",
     "CC3 10",
     "CC4 10",
     "CC5 10",
     "CC6 10",
-    "CR1 10",
-    "CR2 10",
-    "CR3 10",
-    "CR4 10",
     "CC1 11",
     "CC2 11",
     "CC3 11",
     "CC4 11",
     "CC5 11",
     "CC6 11",
-    "CR1 11",
-    "CR2 11",
-    "CR3 11",
-    "CR4 11",
     "CC1 12",
     "CC2 12",
     "CC3 12",
     "CC4 12",
     "CC5 12",
     "CC6 12",
-    "CR1 12",
-    "CR2 12",
-    "CR3 12",
-    "CR4 12",
     "CC1 13",
     "CC2 13",
     "CC3 13",
     "CC4 13",
     "CC5 13",
     "CC6 13",
-    "CR1 13",
-    "CR2 13",
-    "CR3 13",
-    "CR4 13",
     "CC1 14",
     "CC2 14",
     "CC3 14",
     "CC4 14",
     "CC5 14",
     "CC6 14",
-    "CR1 14",
-    "CR2 14",
-    "CR3 14",
-    "CR4 14"
 }
 
 local chord_names = {"Major", "Minor", "Dominant 7", "Major 7", "Minor 7", "Minor Major 7", "Major 6", "Minor 6", "Major 69", "Minor 69", "Ninth", "Major 9", "Minor 9", "Eleventh", "Major 11", "Minor 11", "Thirteenth", "Major 13", "Minor 13", "Sus4", "Seventh sus4", "Diminished", "Diminished 7", "Half Diminished 7", "Augmented", "Augmented 7"}
@@ -706,7 +678,7 @@ local function seqrun(counter)
               choke[tr] = step_param.sample
               
             else
-              if params:get("takt_jf")==2 and step_param.device == 5 then 
+              if params:get("takt_jf")==2 and step_param.device == 5 then  -- add support for takt_jf_crow
                   crow.ii.jf.play_note((step_param.note-60)/12,(step_param.velocity/127) * 10)
                   --print("jf", step_param.note)
                   if step_param.chord then
@@ -733,9 +705,16 @@ local function seqrun(counter)
                   crow.output[1].volts = (step_param.note-0)/12 + crow_out_1_offset_v
                   crow.output[2].action = string.format("pulse(%.3f,10)", (step_param.length* 60/data[data.pattern].bpm/10))
                   crow.output[2]() -- this will be a trigger? what if we want a gate = note length?
-                  --crow.output[3].volts = seq.get_amp_crow() -- get a value from the CC row?
-                  --crow.output[4].volts = seq.get_release_crow() - get a value from the CC row?
-              else
+                  crow.output[3].volts = util.clamp((step_param.velocity/12),0,10) + crow_out_3_offset_v -- avoid clipping 10V
+                  --crow.output[4].volts = util.clamp((step_param.velocity/12),0,10) + crow_out_4_offset_v -- avoid clipping 10V
+                  --print("crow 3", util.clamp((step_param.velocity/12),0,10) + crow_out_3_offset_v)
+                  --local crow4 = step_param['cc_1_val']
+                  --if crow4 then
+                      --print("cc_1", crow4)
+                      --print("crow 4", util.clamp((crow4/12),0,10) + crow_out_4_offset_v)
+                   --   crow.output[4].volts = util.clamp((crow4/12),0,10) + crow_out_4_offset_v -- avoid clipping 10V
+                  --end
+              else -- handle normal midi output
                   set_cc(tr, step_param)
                   
                   if step_param.program_change >= 0 then
@@ -1156,6 +1135,17 @@ function init()
     params:set_action("takt_wsyn",function(x)
         if x==2 then
           crow.ii.wsyn.play_voice(0,0,0)
+        end
+    end)
+    params:set_action("takt_crow",function(x)
+        if x==2 then
+          print("init crow full voice")
+          crow.output[1].volts = 0.0
+          crow.output[2].volts = 0.0
+          crow.output[3].volts = 0.0
+          crow.output[4].volts = 0.0
+          --crow.output[4].action = "lfo(4,1,sine)"
+          --crow.output[4]()
         end
     end)
     wsyn_add_params()

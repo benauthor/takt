@@ -25,10 +25,10 @@ local jf_crow_params_lookup = {"--", "CR1", "CR2", "CR3", "CR4", "--", "--"}
 local crow_full_voice_params_lookup = {"--","CR4", "A", "D", "S", "R", "Port"}
 local crow_2_voice_params_lookup = {"--", "A", "D", "S", "R", "Port", "--"}
 
-local wsyn_on = {false,false,false,false,false,false,false}
-local crow_full_voice_on = {false,false,false,false,false,false,false}
-local crow_2_voice_on = {false,false,false,false,false,false,false}
-local jf_crow_on = {false,false,false,false,false,false,false}
+--local wsyn_on = {false,false,false,false,false,false,false}
+--local crow_full_voice_on = {false,false,false,false,false,false,false}
+--local crow_2_voice_on = {false,false,false,false,false,false,false}
+--local jf_crow_on = {false,false,false,false,false,false,false}
 
 local dividers  = {[0] = 'OFF', '1/8', '1/4', '1/2', '3/4', '--', '3/2', '2x' } 
 
@@ -803,6 +803,11 @@ function ui.midi_screen(tr, params_data, ui_index, tracks, steps)
       {12,'CC' .. params_data.cc_6, params_data.cc_6_val },
     }
     
+    local wsyn_on = false 
+    local crow_full_voice_on = false 
+    local crow_2_voice_on = false 
+    local jf_crow_on = false 
+        
     
    for k, v in pairs(tile) do
         
@@ -830,27 +835,27 @@ function ui.midi_screen(tr, params_data, ui_index, tracks, steps)
               v[3] = util.round(util.linlin(1, 256, 1, 16,v[3]),0.01)
             end
             if v[1] == 5 and v[3] == 6 and params:get("takt_wsyn") == 2 then
-                wsyn_on[tr] = true
+                wsyn_on = true
                 ui.tile(v[1], v[2], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
             elseif v[1] == 5 and v[3] == 7 and params:get("takt_crow") == 2 then
-                crow_full_voice_on[tr] = true
+                crow_full_voice_on = true
                 ui.tile(v[1], v[2], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
             elseif v[1] == 5 and v[3] == 8 and params:get("takt_crow") == 3 then
-                crow_2_voice_on[tr] = true
+                crow_2_voice_on = true
                 ui.tile(v[1], v[2], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
             elseif v[1] == 5 and v[3] == 9 and params:get("takt_crow") == 3 then
-                crow_2_voice_on[tr] = true
+                crow_2_voice_on = true
                 ui.tile(v[1], v[2], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
             elseif v[1] == 5 and v[3] == 10 and params:get("takt_crow") == 4 then
-                jf_crow_on[tr] = true
+                jf_crow_on = true
                 ui.tile(v[1], v[2], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
-            elseif v[1] > 6 and wsyn_on[tr] then 
+            elseif v[1] > 6 and wsyn_on then 
                 ui.tile(v[1], wsyn_params_lookup[v[1]-5], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
-            elseif v[1] > 6 and crow_full_voice_on[tr] then 
+            elseif v[1] > 6 and crow_full_voice_on then 
                 ui.tile(v[1], crow_full_voice_params_lookup[v[1]-5], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
-            elseif v[1] > 6 and crow_2_voice_on[tr] then 
+            elseif v[1] > 6 and crow_2_voice_on then 
                 ui.tile(v[1], crow_2_voice_params_lookup[v[1]-5], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
-            elseif v[1] > 6 and jf_crow_on[tr] then 
+            elseif v[1] > 6 and jf_crow_on then 
                 ui.tile(v[1], jf_crow_params_lookup[v[1]-5], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
             else
                 local lfo_name = ""
@@ -859,13 +864,13 @@ function ui.midi_screen(tr, params_data, ui_index, tracks, steps)
                     local target = params:get(i .. "lfo_target") 
                     local tile_offset = 6
                     --if v[3] == 10 and params:get("takt_crow") == 4 then
-                    if jf_crow_on[tr]  then
+                    --if jf_crow_on[tr]  then
                         --print("adjusting for crow output")
-                        target = target - 6
-                        tile_offset = 1
-                    end
+                        --target = target - 6
+                        --tile_offset = 1
+                    --end
                     --print("lfo", i, "target", target - 1 - ((tr - 8) * 10), "tile", v[1]-tile_offset)
-                    if target - 1 - ((tr - 8) * 10) == (v[1] - tile_offset) then -- adjust to allow for crow output labels
+                    if target - 1 - ((tr - 8) * 6) == (v[1] - tile_offset) then -- adjust to allow for crow output labels
                         lfo_name = "lfo " .. i 
                         lfo_tile = target - 1
                         --print("lfo_tile", lfo_tile)
