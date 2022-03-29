@@ -708,12 +708,12 @@ local function seqrun(counter)
                   crow.output[3].volts = util.clamp((step_param.velocity/12),0,10) + crow_out_3_offset_v -- avoid clipping 10V
                   --crow.output[4].volts = util.clamp((step_param.velocity/12),0,10) + crow_out_4_offset_v -- avoid clipping 10V
                   --print("crow 3", util.clamp((step_param.velocity/12),0,10) + crow_out_3_offset_v)
-                  --local crow4 = step_param['cc_1_val']
-                  --if crow4 then
+                  local crow4 = step_param['cc_1_val']
+                  if crow4 then
                       --print("cc_1", crow4)
                       --print("crow 4", util.clamp((crow4/12),0,10) + crow_out_4_offset_v)
-                   --   crow.output[4].volts = util.clamp((crow4/12),0,10) + crow_out_4_offset_v -- avoid clipping 10V
-                  --end
+                      crow.output[4].volts = util.clamp((crow4/12),0,10) + crow_out_4_offset_v -- avoid clipping 10V
+                  end
               else -- handle normal midi output
                   set_cc(tr, step_param)
                   
@@ -1137,7 +1137,7 @@ function init()
           crow.ii.wsyn.play_voice(0,0,0)
         end
     end)
-    params:set_action("takt_crow",function(x)
+    params:set_action("takt_crow",function(x) -- need to ensure crow clock out is turned off
         if x==2 then
           print("init crow full voice")
           crow.output[1].volts = 0.0
