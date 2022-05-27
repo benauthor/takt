@@ -134,7 +134,7 @@ Engine_Timber_Takt : CroneEngine {
 		replyFunc = OSCFunc({
 			arg msg;
 			var id = msg[2];
-			scriptAddress.sendBundle(0, ['/enginePlayPosition', msg[3].asInt, msg[4].asInt, msg[5]]);
+			scriptAddress.sendBundle(0, ['/enginePlayPosition', msg[3].asInteger, msg[4].asInteger, msg[5]]);
 		}, path: '/replyPlayPosition', srcID: context.server.addr);
 
 		// Sample defaults
@@ -809,8 +809,8 @@ Engine_Timber_Takt : CroneEngine {
 							});
 
 							// 0-126, 63 is center (zero)
-							min = min.linlin(-1, 0, 0, 63).round.asInt;
-							max = max.linlin(0, 1, 63, 126).round.asInt;
+							min = min.linlin(-1, 0, 0, 63).round.asInteger;
+							max = max.linlin(0, 1, 63, 126).round.asInteger;
 							waveform = waveform.add(min);
 							waveform = waveform.add(max);
 

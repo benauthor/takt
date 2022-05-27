@@ -691,6 +691,21 @@ local function seqrun(counter)
                   end
               elseif params:get("takt_wsyn")==2 and step_param.device == 6 then 
                   crow.ii.wsyn.lpg_time(util.linlin(1,127,5,-5,step_param.length))
+                  if step_param['cc_1_val'] then
+                    crow.ii.wsyn.ramp(step_param['cc_1_val'])
+                  end
+                  if step_param['cc_2_val'] then
+                    crow.ii.wsyn.fm_index(step_param['cc_2_val'])
+                  end
+                  if step_param['cc_3_val'] then
+                    crow.ii.wsyn.fm_env(step_param['cc_3_val'])
+                  end
+                  if step_param['cc_4_val'] and step_param['cc_5_val'] then
+                    crow.ii.wsyn.fm_ratio(step_param['cc_4_val'],step_param['cc_5_val'])
+                  end
+                  if step_param['cc_6_val'] then
+                    crow.ii.wsyn.lpg_symmetry(step_param['cc_6_val'])
+                  end
                   crow.ii.wsyn.play_note((step_param.note-60)/12,(step_param.velocity/127) * 5)
                   --print("wsyn", step_param.note)
                   if step_param.chord then
@@ -858,22 +873,46 @@ local midi_step_params = {
   end,
   
   [8] = function(tr, s, d) -- 
-      data[data.pattern][tr].params[s].cc_1_val = util.clamp(data[data.pattern][tr].params[s].cc_1_val + d, -1, 127)
+      if params:get("takt_wsyn")==2 and data[data.pattern][tr].params[s].device == 6 then
+        data[data.pattern][tr].params[s].cc_1_val = util.clamp(data[data.pattern][tr].params[s].cc_1_val + d, -5, 5)
+      else
+        data[data.pattern][tr].params[s].cc_1_val = util.clamp(data[data.pattern][tr].params[s].cc_1_val + d, -1, 127)
+      end
   end,
   [9] = function(tr, s, d) -- 
-      data[data.pattern][tr].params[s].cc_2_val = util.clamp(data[data.pattern][tr].params[s].cc_2_val + d, -1, 127)
+      if params:get("takt_wsyn")==2 and data[data.pattern][tr].params[s].device == 6 then
+        data[data.pattern][tr].params[s].cc_2_val = util.clamp(data[data.pattern][tr].params[s].cc_2_val + d, -5, 5)
+      else
+        data[data.pattern][tr].params[s].cc_2_val = util.clamp(data[data.pattern][tr].params[s].cc_2_val + d, -1, 127)
+      end
   end,
   [10] = function(tr, s, d) -- 
-      data[data.pattern][tr].params[s].cc_3_val = util.clamp(data[data.pattern][tr].params[s].cc_3_val + d, -1, 127)
+      if params:get("takt_wsyn")==2 and data[data.pattern][tr].params[s].device == 6 then
+        data[data.pattern][tr].params[s].cc_3_val = util.clamp(data[data.pattern][tr].params[s].cc_3_val + d, -5, 5)
+      else
+        data[data.pattern][tr].params[s].cc_3_val = util.clamp(data[data.pattern][tr].params[s].cc_3_val + d, -1, 127)
+      end
   end,
   [11] = function(tr, s, d) -- 
-      data[data.pattern][tr].params[s].cc_4_val = util.clamp(data[data.pattern][tr].params[s].cc_4_val + d, -1, 127)
+      if params:get("takt_wsyn")==2 and data[data.pattern][tr].params[s].device == 6 then
+        data[data.pattern][tr].params[s].cc_4_val = util.clamp(data[data.pattern][tr].params[s].cc_4_val + d, 1, 20)
+      else
+        data[data.pattern][tr].params[s].cc_4_val = util.clamp(data[data.pattern][tr].params[s].cc_4_val + d, -1, 127)
+      end
   end,
   [12] = function(tr, s, d) -- 
-      data[data.pattern][tr].params[s].cc_5_val = util.clamp(data[data.pattern][tr].params[s].cc_5_val + d, -1, 127)
+      if params:get("takt_wsyn")==2 and data[data.pattern][tr].params[s].device == 6 then
+        data[data.pattern][tr].params[s].cc_5_val = util.clamp(data[data.pattern][tr].params[s].cc_5_val + d, 1, 20)
+      else
+        data[data.pattern][tr].params[s].cc_5_val = util.clamp(data[data.pattern][tr].params[s].cc_5_val + d, -1, 127)
+      end
   end,
   [13] = function(tr, s, d) -- 
-      data[data.pattern][tr].params[s].cc_6_val = util.clamp(data[data.pattern][tr].params[s].cc_6_val + d, -1, 127)
+      if params:get("takt_wsyn")==2 and data[data.pattern][tr].params[s].device == 6 then
+        data[data.pattern][tr].params[s].cc_6_val = util.clamp(data[data.pattern][tr].params[s].cc_6_val + d, -5, 5)
+      else
+        data[data.pattern][tr].params[s].cc_6_val = util.clamp(data[data.pattern][tr].params[s].cc_6_val + d, -1, 127)
+      end
   end,
   
   [14] = function(tr, s, d) -- 

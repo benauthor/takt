@@ -20,7 +20,7 @@ local midi_name_lookup = {
 local chord_name_lookup = {"M", "m", "D7", "M7", "m7", "mM7", "M6", "m6", "M69", "m69", "D9", "M9", "m9", "D11", "M11", "m11", "D13", "M13", "m13", "Sus4", "7Sus4", "Dim", "Dim7", "hD7", "Aug", "A7" }
 
 --@chailight wsyn param display
-local wsyn_params_lookup = {"--", "Ramp", "FM i", "FM e", "RN", "RD", "Time"}
+local wsyn_params_lookup = {"--", "Ramp", "FM i", "FM e", "RN", "RD", "Sym"}
 local jf_crow_params_lookup = {"--", "CR1", "CR2", "CR3", "CR4", "--", "--"}
 local crow_full_voice_params_lookup = {"--","CR4", "A", "D", "S", "R", "Port"}
 local crow_2_voice_params_lookup = {"--", "A", "D", "S", "R", "Port", "--"}
@@ -829,7 +829,7 @@ function ui.midi_screen(tr, params_data, ui_index, tracks, steps)
                 ui.tile(v[1], v[2], v[3], ui_index, lock , v[1] > 6 and v[1] + 6 or false)
            end
         else
-            if v[1]  > 3 and  v[3] < 0 then 
+            if v[1]  > 3 and  v[3] < 0 and wsyn_on == false  then 
               v[3] = '--' 
             elseif  v[1] == 3 then 
               v[3] = util.round(util.linlin(1, 256, 1, 16,v[3]),0.01)
