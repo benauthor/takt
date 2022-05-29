@@ -591,6 +591,8 @@ function ui.tile(index, name, value, ui_index, lock, custom)
             end
             value = disp_value 
             --print ("dev", value)
+          elseif name == "RN" or name == "RD" then
+            value = value * 10
           end
        end
   end
@@ -850,7 +852,7 @@ function ui.midi_screen(tr, params_data, ui_index, tracks, steps)
                 jf_crow_on = true
                 ui.tile(v[1], v[2], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
             elseif v[1] > 6 and wsyn_on then 
-                ui.tile(v[1], wsyn_params_lookup[v[1]-5], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
+                ui.tile(v[1], wsyn_params_lookup[v[1]-5], v[3]/10, ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
             elseif v[1] > 6 and crow_full_voice_on then 
                 ui.tile(v[1], crow_full_voice_params_lookup[v[1]-5], v[3], ui_index-1, lock , v[1] > 6 and v[1] + 6 or false)
             elseif v[1] > 6 and crow_2_voice_on then 

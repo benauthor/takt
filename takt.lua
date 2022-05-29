@@ -30,6 +30,7 @@ is_running = flase
 seq_stage = 0
 step = 0
 pattern_name = 'new'
+pluckylogger_update = false
 
 local lfo_targets = {
     "none",
@@ -690,21 +691,31 @@ local function seqrun(counter)
                       end
                   end
               elseif params:get("takt_wsyn")==2 and step_param.device == 6 then 
-                  crow.ii.wsyn.lpg_time(util.linlin(1,127,5,-5,step_param.length))
+                  crow.ii.wsyn.lpg_time(util.linlin(1,256,5,-5,step_param.length))
+                  -- update the CC values if they've been changed directly by pluckylogger 
+                  if pluckylogger_update then
+                    step_param['cc_1_val'] = params:get("wsyn_ramp") 
+                    step_param['cc_2_val'] = params:get("wsyn_fm_index") 
+                    step_param['cc_3_val'] = params:get("wsyn_fm_env") 
+                    step_param['cc_4_val'] = params:get("wsyn_fm_ratio_num") 
+                    step_param['cc_5_val'] = params:get("wsyn_fm_ratio_den") 
+                    step_param['cc_6_val'] = params:get("wsyn_lpg_symmetry") 
+                    pluckylogger = false
+                  end
                   if step_param['cc_1_val'] then
-                    crow.ii.wsyn.ramp(step_param['cc_1_val'])
+                    crow.ii.wsyn.ramp(step_param['cc_1_val']/10)
                   end
                   if step_param['cc_2_val'] then
-                    crow.ii.wsyn.fm_index(step_param['cc_2_val'])
+                    crow.ii.wsyn.fm_index(step_param['cc_2_val']/10)
                   end
                   if step_param['cc_3_val'] then
-                    crow.ii.wsyn.fm_env(step_param['cc_3_val'])
+                    crow.ii.wsyn.fm_env(step_param['cc_3_val']/10)
                   end
                   if step_param['cc_4_val'] and step_param['cc_5_val'] then
-                    crow.ii.wsyn.fm_ratio(step_param['cc_4_val'],step_param['cc_5_val'])
+                    crow.ii.wsyn.fm_ratio(step_param['cc_4_val']/10,step_param['cc_5_val']/10)
                   end
                   if step_param['cc_6_val'] then
-                    crow.ii.wsyn.lpg_symmetry(step_param['cc_6_val'])
+                    crow.ii.wsyn.lpg_symmetry(step_param['cc_6_val']/10)
                   end
                   crow.ii.wsyn.play_note((step_param.note-60)/12,(step_param.velocity/127) * 5)
                   --print("wsyn", step_param.note)
@@ -867,6 +878,14 @@ local midi_step_params = {
   --@chailight increase the options for the device to enable selecting JF, WSyn and crow 
   [6] = function(tr, s, d) -- device
       data[data.pattern][tr].params[s].device = util.clamp(data[data.pattern][tr].params[s].device + d, 1, 10)
+      if params:get("takt_wsyn")==2 and data[data.pattern][tr].params[s].device == 6 then
+        data[data.pattern][tr].params[s].cc_1_val = params:get("wsyn_ramp") 
+        data[data.pattern][tr].params[s].cc_2_val = params:get("wsyn_fm_index") 
+        data[data.pattern][tr].params[s].cc_3_val = params:get("wsyn_fm_env") 
+        data[data.pattern][tr].params[s].cc_4_val = params:get("wsyn_fm_ratio_num") 
+        data[data.pattern][tr].params[s].cc_5_val = params:get("wsyn_fm_ratio_den") 
+        data[data.pattern][tr].params[s].cc_6_val = params:get("wsyn_lpg_symmetry") 
+      end
   end,
   [7] = function(tr, s, d) -- pgm
       data[data.pattern][tr].params[s].program_change = util.clamp(data[data.pattern][tr].params[s].program_change + d, -1, 127)
@@ -874,21 +893,21 @@ local midi_step_params = {
   
   [8] = function(tr, s, d) -- 
       if params:get("takt_wsyn")==2 and data[data.pattern][tr].params[s].device == 6 then
-        data[data.pattern][tr].params[s].cc_1_val = util.clamp(data[data.pattern][tr].params[s].cc_1_val + d, -5, 5)
+        data[data.pattern][tr].params[s].cc_1_val = util.clamp(data[data.pattern][tr].params[s].cc_1_val + d, -50, 50)
       else
         data[data.pattern][tr].params[s].cc_1_val = util.clamp(data[data.pattern][tr].params[s].cc_1_val + d, -1, 127)
       end
   end,
   [9] = function(tr, s, d) -- 
       if params:get("takt_wsyn")==2 and data[data.pattern][tr].params[s].device == 6 then
-        data[data.pattern][tr].params[s].cc_2_val = util.clamp(data[data.pattern][tr].params[s].cc_2_val + d, -5, 5)
+        data[data.pattern][tr].params[s].cc_2_val = util.clamp(data[data.pattern][tr].params[s].cc_2_val + d, -50, 50)
       else
         data[data.pattern][tr].params[s].cc_2_val = util.clamp(data[data.pattern][tr].params[s].cc_2_val + d, -1, 127)
       end
   end,
   [10] = function(tr, s, d) -- 
       if params:get("takt_wsyn")==2 and data[data.pattern][tr].params[s].device == 6 then
-        data[data.pattern][tr].params[s].cc_3_val = util.clamp(data[data.pattern][tr].params[s].cc_3_val + d, -5, 5)
+        data[data.pattern][tr].params[s].cc_3_val = util.clamp(data[data.pattern][tr].params[s].cc_3_val + d, -50, 50)
       else
         data[data.pattern][tr].params[s].cc_3_val = util.clamp(data[data.pattern][tr].params[s].cc_3_val + d, -1, 127)
       end
@@ -909,7 +928,7 @@ local midi_step_params = {
   end,
   [13] = function(tr, s, d) -- 
       if params:get("takt_wsyn")==2 and data[data.pattern][tr].params[s].device == 6 then
-        data[data.pattern][tr].params[s].cc_6_val = util.clamp(data[data.pattern][tr].params[s].cc_6_val + d, -5, 5)
+        data[data.pattern][tr].params[s].cc_6_val = util.clamp(data[data.pattern][tr].params[s].cc_6_val + d, -50, 50)
       else
         data[data.pattern][tr].params[s].cc_6_val = util.clamp(data[data.pattern][tr].params[s].cc_6_val + d, -1, 127)
       end
@@ -1938,6 +1957,7 @@ function wsyn_add_params()
       params:set("wsyn_fm_ratio_den", math.random(1, 4))
       params:set("wsyn_lpg_time", math.random(-28, -5)/10)
       params:set("wsyn_lpg_symmetry", math.random(-50, -30)/10)
+      pluckylogger_update = true
     end
   }
   params:add{
@@ -1953,6 +1973,7 @@ function wsyn_add_params()
       params:set("wsyn_fm_ratio_den", math.random(1, 20))
       params:set("wsyn_lpg_time", math.random(-50, 50)/10)
       params:set("wsyn_lpg_symmetry", math.random(-50, 50)/10)
+      pluckylogger_update = true
     end
   }
   params:add{
