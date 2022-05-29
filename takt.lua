@@ -776,6 +776,10 @@ local function midi_event(d)
   
   local msg = midi.to_msg(d)
   local tr = data.selected[1] 
+  -- @chailight enable external midi input to be locked to a track rather than following grid focus
+  if params:get("takt_midi_input_track") > 0 then
+    tr = params:get("takt_midi_input_track")
+  end
 
   local pos = data[data.pattern].track.pos[tr]
   local step_param = get_params(tr, pos, true)
@@ -785,6 +789,9 @@ local function midi_event(d)
     PATTERN_REC = not PATTERN_REC
   -- Note off
   elseif msg.type == "note_off" then
+      if tr > 7 and step_param.device < 4 then
+            midi_out_devices[step_param.device]:note_off( msg.note, msg.vel, step_param.channel )
+      end
     --engine.noteOff(tr)
   -- Note on
   elseif msg.type == "note_on" then
@@ -803,7 +810,7 @@ local function midi_event(d)
           crow.output[2].action = string.format("pulse(%.3f,10)", (step_param.length* 60/data[data.pattern].bpm/10))
           crow.output[2].execute() -- this will be a trigger? what if we want a gate = note length?
       else
-          midi_out_devices[step_parame.device]:note_on( msg.note, msg.vel, step_param.channel )
+          midi_out_devices[step_param.device]:note_on( msg.note, msg.vel, step_param.channel )
       end
       --if sequencer_metro.is_running and PATTERN_REC then 
       if is_running and PATTERN_REC then --@chailight unifying on a single is_running flag
@@ -1210,7 +1217,7 @@ function init()
     params:bang()
     params:set("wsyn_init",1)
     crow_add_params()
-
+    params:add_control("takt_midi_input_track","midi input track",controlspec.new(0, 14, 'lin', 1, 0, ""))
     params:add_separator()
 
 
