@@ -797,8 +797,9 @@ local function midi_event(d)
     print("note_on", msg.note, msg.vel)
     if not view.sampling then
       if tr < 8 then
-          engine.noteOff(tr)
-          engine.noteOn(tr, music.note_num_to_freq(msg.note), msg.vel / 127, data[data.pattern][tr].params[tostring(tr)].sample)
+          -- hm, we don't really want a sample to play every time we place a note, does this have to do with using a 64 grid rather than 128?
+          -- engine.noteOff(tr)
+          -- engine.noteOn(tr, music.note_num_to_freq(msg.note), msg.vel / 127, data[data.pattern][tr].params[tostring(tr)].sample)
       elseif params:get("takt_jf")==2 and step_param.device == 5 then
           crow.ii.jf.play_note((msg.note-60)/12,(msg.vel/127) * 10)
       elseif params:get("takt_wsyn")==2 and step_param.device == 6 then
