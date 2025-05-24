@@ -109,7 +109,19 @@ local time_map = controlspec.new(0.0001, 5, 'exp', 0, 0.1, 's')
 --
 local g = grid.connect()
 local data = { pattern = 1, ui_index = 1, selected = { 1, false },  metaseq = { from = 1, to = 1, div = 1}, [1] = takt_utils.make_default_pattern() }
-local view = { steps_engine = true, steps_midi = false, notes_input = false, sampling = false, patterns = false }
+local Views = {
+  -- the main sequencer view
+  StepsEngine = {},
+  -- the midi learn screeen
+  StepsMIDI = {},
+  -- play grid like a keyboard
+  NotesInput = {},
+  -- recording a sample
+  Sampling = {},
+  -- pattern chaining?
+  Patterns = {}
+}
+local view = Views.StepsEngine
 local choke = { 1, 2, 3, 4, 5, 6, 7, {},{},{},{},{},{},{}, ['8rt'] = {},['9rt'] = {},['10rt'] = {},['11rt'] = {}, ['12rt'] = {}, ['13rt'] = {},['14rt'] = {} }
 local dividers  = { [1] = 16, [2] = 8, [3] = 4, [4] = 3, [5] = 2, [6] = 1.5, [7] = 1,}
 local midi_dividers  = { [1] = 16, [2] = 8, [3] = 4, [4] = 3, [5] = 1, [6] = 0.666, [7] = 0.545,}
@@ -250,7 +262,6 @@ local function load_project(pth)
       comp_shut(is_running)
   end
 
-  --set_view('steps_engine')
   if string.find(pth, '.tkt') ~= nil then
     local saved = tab.load(pth)
     if saved ~= nil then
@@ -315,17 +326,31 @@ end
 
 -- views
 
-local function set_view(x)
-  if not sampler.rec then
-    for k, v in pairs(view) do
-      view[k] = k == x and true or false
+local function contains(arr, val)
+    for _, v in ipairs(val) do
+        if v == val then
+            return true
+        end
     end
+
+    return false
+end
+
+local function set_view(x)
+  if sampler.rec then
+    print("TODO sampler.rec blocks set_view")
+    return
   end
-  if view.sampling or view.patterns then last_index = data.ui_index data.ui_index = 1
+
+  view = x
+
+  if contains({Views.Sampling, Views.Patterns}, view)
+  then
+    last_index = data.ui_index
+    data.ui_index = 1
   else
     data.ui_index = last_index
   end
-
 end
 
 --- steps
@@ -796,7 +821,7 @@ local function midi_event(d)
   -- Note on
   elseif msg.type == "note_on" then
     print("note_on", msg.note, msg.vel)
-    if not view.sampling then
+    if view != Views.Sampling then
       if tr < 8 then
           engine.noteOff(tr)
           engine.noteOn(tr, music.note_num_to_freq(msg.note), msg.vel / 127, data[data.pattern][tr].params[tostring(tr)].sample)
@@ -831,7 +856,7 @@ local track_params = {
       data.metaseq.to = false --data.pattern
   end,
   [-5] = function(tr, s, d) -- rnd
-        local offset = view.steps_midi and 7 or 0
+        local offset = view == Views.StepsMidi and 7 or 0
         data.selected[1] = util.clamp(data.selected[1] + d, 1 + offset, 7 + offset)
         tr_change(data.selected[1])
   end,
@@ -1076,8 +1101,8 @@ local trig_params = {
 
 local controls = {
   [1] = function(z) -- start / stop,
-      if z == 1 then
-        if original_clock then --@chailight switch behaviour based on clock selection
+    if key_is_down(z) then
+      if original_clock then --@chailight switch behaviour based on clock selection
             if sequencer_metro.is_running then
               sequencer_metro:stop()
               midi_clock:stop()
@@ -1110,16 +1135,16 @@ local controls = {
         end
       end
     end,
-  --[3] = function(z)  if view.notes_input and z == 1 and sequencer_metro.is_running then PATTERN_REC = not PATTERN_REC end end,
-  [3] = function(z)  if view.notes_input and z == 1 and is_running then PATTERN_REC = not PATTERN_REC end end,
-  [5] = function(z)  if z == 1 then if not view.notes_input then set_view('steps_engine') PATTERN_REC = false end tr_change(1)  end end,
-  [6] = function(z)  if z == 1 then  if not view.notes_input then set_view('steps_midi') PATTERN_REC = false end tr_change(8)  end end,
-  [8] = function(z)  if z == 1 then set_view(view.notes_input and (data.selected[1] < 8 and 'steps_engine' or 'steps_midi') or 'notes_input') end end,
-  [10] = function(z) if z == 1 then set_view(view.sampling and (data.selected[1] < 8 and 'steps_engine' or 'steps_midi') or 'sampling') end  end,
-  [11] = function(z) if z == 1 then set_view(view.patterns and (data.selected[1] < 8 and 'steps_engine' or 'steps_midi') or 'patterns') end end,
-  [13] = function(z) MOD = z == 1 and true or false if z == 0 then copy = { false, false } end end,
-  [15] = function(z) ALT = z == 1 and true or false print("key ALT", ALT) end,
-  [16] = function(z) SHIFT = z == 1 and true or false end,
+  --[3] = function(z)  if Views.NotesInput and key_is_down(z) and sequencer_metro.is_running then PATTERN_REC = not PATTERN_REC end end,
+  [3] = function(z)  if view == Views.NotesInput and key_is_down(z) and is_running then PATTERN_REC = not PATTERN_REC end end,
+  [5] = function(z)  if key_is_down(z) then if view != Views.NotesInput then set_view(Views.StepsEngine) PATTERN_REC = false end tr_change(1)  end end,
+  [6] = function(z)  if key_is_down(z) then if view != Views.NotesInput then set_view(Views.StepsMidi) PATTERN_REC = false end tr_change(8)  end end,
+  [8] = function(z)  if key_is_down(z) then set_view(Views.NotesInput and (data.selected[1] < 8 and Views.StepsEngine or Views.StepsMidi) or 'notes_input') end end,
+  [10] = function(z) if key_is_down(z) then set_view(view == Views.Sampling and (data.selected[1] < 8 and Views.StepsEngine or Views.StepsMidi) or 'sampling') end  end,
+  [11] = function(z) if key_is_down(z) then set_view(view == Views.Patterns and (data.selected[1] < 8 and Views.StepsEngine or Views.StepsMidi) or 'patterns') end end,
+  [13] = function(z) MOD = key_is_down(z) and true or false if z == 0 then copy = { false, false } end end,
+  [15] = function(z) ALT = key_is_down(z) and true or false print("key ALT", ALT) end,
+  [16] = function(z) SHIFT = key_is_down(z) and true or false end,
 }
 
 local params_fx = {
@@ -1324,12 +1349,12 @@ function enc(n,d)
 
   elseif n == 2 then
 
-    if not view.sampling then
+    if not view == Views.Sampling then
       if not K1_is_hold() then
         --@chailight adjusted limit from 18 to 19 because of additional chord function for midi ui_index
-        data.ui_index = util.clamp(data.ui_index + d, not data.selected[2] and 1 or -3, (view.steps_midi or view.patterns) and 19 or 20)
+        data.ui_index = util.clamp(data.ui_index + d, not data.selected[2] and 1 or -3, contains({Views.StepsMidi, Views.Patterns}, view) and 19 or 20)
       else
-        data.ui_index = util.clamp(data.ui_index + d, view.patterns and -1 or -6, -1)
+        data.ui_index = util.clamp(data.ui_index + d, view == Views.Patterns and -1 or -6, -1)
       end
     else
       if not sampler.rec then
@@ -1337,13 +1362,13 @@ function enc(n,d)
       end
     end
   elseif n == 3 then
-    if view.patterns then
+    if view == Views.Patterns then
       if K1_is_hold() then
         track_params[-1](tr, p, d)
       else
         params_fx[data.ui_index](d)
       end
-    elseif not view.sampling then
+    elseif not view == Views.sSmpling then
 
       local p = is_lock()
       local t = type(p) == 'number' and get_step(p) or p
@@ -1369,7 +1394,7 @@ function enc(n,d)
             end
           end
 
-      if view.notes_input then set_locks(get_params(tr)) end
+      if view == Views.NotesInput then set_locks(get_params(tr)) end
       end
     else
       sampling_params[data.ui_index](d)
@@ -1378,55 +1403,55 @@ function enc(n,d)
 end
 
 function key(n,z)
-  K1_hold = (n == 1 and z == 1) and true or false
-  K3_hold = (n == 3 and z == 1) and true or false --@chailight correcting a bug?
+  K1_hold = (n == 1 and key_is_down(z)) and true or false
+  K3_hold = (n == 3 and key_is_down(z)) and true or false --@chailight correcting a bug?
   if browser.open then
     browser.key(n, z)
-
   elseif n == 1 then
-    if K1_is_hold() and not view.sampling and not view.patterns then
+    if K1_is_hold() and not view == Views.Sampling and not view == Views.Patterns then
       data.ui_index = -4
-    elseif K1_is_hold() and view.patterns then
+    elseif K1_is_hold() and view == Views.Patterns then
       data.ui_index = -1
     else
       data.ui_index = 1
     end
-  elseif n == 2 and z == 1 then
-    if view.patterns then
-      set_view(view.notes_input and (data.selected[1] < 8 and 'steps_engine' or 'steps_midi'))
+  elseif n == 2 and key_is_down(z) then
+    if view == Views.Patterns then
+      -- XXX TODO i lost the thread
+      print("XXX TODO I LOST THE THREAD")
+      -- set_view(Views.notes_input and (data.selected[1] < 8 and Views.StepsEngine or Views.StepsMidi))
     elseif browser.open then
-
       browser.exit()
     end
   elseif n == 3 then
-    if view.sampling then
-        sampling_actions[data.ui_index](z)
-        if z == 1 and ((data.ui_index == 1 and sampler.rec) or data.ui_index == 4) then ui.waveform = {} end
-    elseif view.patterns then
-        --open_settings(2)
-        --open_settings(3.5)
-        --open_settings(5.5)
-      elseif not view.steps_midi then
-      if data.ui_index == 1 and z == 1  then
-          local sample_id = data[data.pattern][data.selected[1]].params[is_lock()].sample
-          browser.enter(_path.audio, timber.load_sample, sample_id)
-      elseif (data.ui_index == 3 or data.ui_index == 4) and z == 1 and sample_not_loaded(get_sample()) then
-          local sample_id = data[data.pattern][data.selected[1]].params[is_lock()].sample
-          browser.enter(_path.audio, timber.load_sample, sample_id)
-      elseif (data.ui_index == 17 or data.ui_index == 18) and z == 1 then
-          change_filter_type()
+    if view == Views.Sampling then
+      sampling_actions[data.ui_index](z)
+      if key_is_down(z) and ((data.ui_index == 1 and sampler.rec) or data.ui_index == 4) then ui.waveform = {} end
+    elseif view == Views.Patterns then
+      --open_settings(2)
+      --open_settings(3.5)
+      --open_settings(5.5)
+    elseif view != Views.StepsMidi then
+      if data.ui_index == 1 and key_is_down(z)  then
+        local sample_id = data[data.pattern][data.selected[1]].params[is_lock()].sample
+        browser.enter(_path.audio, timber.load_sample, sample_id)
+      elseif (data.ui_index == 3 or data.ui_index == 4) and key_is_down(z) and sample_not_loaded(get_sample()) then
+        local sample_id = data[data.pattern][data.selected[1]].params[is_lock()].sample
+        browser.enter(_path.audio, timber.load_sample, sample_id)
+      elseif (data.ui_index == 17 or data.ui_index == 18) and key_is_down(z) then
+        change_filter_type()
       elseif lfo_1[data.ui_index] then
-          set_view('patterns')
-          data.ui_index = 15
+        set_view('patterns')
+        data.ui_index = 15
       elseif lfo_2[data.ui_index] then
-          set_view('patterns')
-          data.ui_index = 17
+        set_view('patterns')
+        data.ui_index = 17
       elseif data.ui_index == 19 then
-          set_view('patterns')
-          data.ui_index = 12
+        set_view('patterns')
+        data.ui_index = 12
       elseif data.ui_index == 20 then
-          set_view('patterns')
-          data.ui_index = 8
+        set_view('patterns')
+        data.ui_index = 8
       end
     end
   end
@@ -1451,10 +1476,10 @@ function redraw(stage)
 
   ui.head(redraw_params[1], data, view, K1_is_hold(), rules, PATTERN_REC, browser.preview)
 
-  if view.sampling then
+  if view == Views.Sampling then
     local pos = sampler.get_pos()
     ui.sampling(sampler, data.ui_index, pos)
-  elseif view.patterns then
+  elseif view == Views.Patterns then
     ui.patterns(data.pattern, data.metaseq, data.ui_index, stage)
   else
     if data.selected[1] < 8 then
@@ -1480,177 +1505,200 @@ function redraw(stage)
 end
 
 
-function g.key(x, y, z)
-  screen.ping()
-  if view.notes_input and not ALT and not SHIFT then
-    local tr = data.selected[1]
-    local device = data[data.pattern][tr].params[tr].device
-    local note = linn.grid_key(x, y, z, device and midi_out_devices[device])
-    local vel = data[data.pattern][tr].params[tr].velocity
-    local len  = data[data.pattern][tr].params[tr].length
-    --@chailight support for jf and wsyn output devices needed here
-    local pos = data[data.pattern].track.pos[tr]
-    if note then
-      if tr < 8 then
-        engine.noteOn(data.selected[1], music.note_num_to_freq(note), 1, data[data.pattern][data.selected[1]].params[tr].sample)
-      elseif params:get("takt_jf")==2 and device == 5 then
-          crow.ii.jf.play_note((note-60)/12,(vel/127) * 10)
-      elseif params:get("takt_wsyn")==2 and device == 6 then
-          --crow.ii.wsyn.lpg_time(util.linlin(1,127,5,-5,step_param.length))
-          crow.ii.wsyn.play_note((note-60)/12,(vel/127) * 5)
-      elseif params:get("takt_crow")==2 and device == 7 then
-          crow.output[1].volts = (note-0)/12 + crow_out_1_offset_v
-          crow.output[2].action = string.format("pulse(%.3f,10)", (len * 60/data[data.pattern].bpm/10))
-          crow.output[2].execute() -- this will be a trigger? what if we want a gate = note length?
-      else
-          midi_out_devices[step_parame.device]:note_on( msg.note, msg.vel, step_param.channel )
-      end
-      --if sequencer_metro.is_running and PATTERN_REC then
-      if is_running and PATTERN_REC then
-        place_note(tr, pos, note )
-      end
-    end
-  end
-  if y < 8 then
-    local held
-    local cond = have_substeps(y, x)
-    if z==1 and hold[y] then
-      holdmax[y] = 0
-    end
-    --if view.engine then
-        --print("engine view hold keys")
-    hold[y] = hold[y] + (z * 2 - 1)
-    --elseif view.midi then
-    --    print("midi view hold keys")
-    --    hold[y+7] = hold[y+7] + (z * 2 - 1)
-    --end
-    print("hold", y, hold[y])
-    hold['p'] = hold['p'] + (z * 2 - 1)
-    if hold[y] > holdmax[y] then
-      holdmax[y] = hold[y]
-    end
-    if not view.patterns then
-      local y = data.selected[1] > 7 and y + 7 or y
-      if SHIFT then
-        print("SHIFT")
-        if z == 1 then
-          if x == 16 then
-              mute_track(y)
-          else
-            if x < 8 then
-              set_div(y, x)
-            end
-          end
-        end
-      elseif ALT then -- @chailight additional logic to allow loop length setting in midi view
-          --print("ALT: set loop length")
-          if view.steps_midi then
-            --print("midi view")
-            --print("y", y)
-            if hold[y-7] == 1 then
-              first[y] = x
-              --print("first", x)
-            elseif hold[y-7] == 2 then
-              second[y] = x
-              --print("second", x)
-              set_loop(y, first[y], second[y])
-            end
-          elseif view.steps_engine then
-            --print("engine view")
-            --print("y", y)
-            if hold[y] == 1 then
-              first[y] = x
-              --print("first", x)
-            elseif hold[y] == 2 then
-              second[y] = x
-              --print("second", x)
-              set_loop(y, first[y], second[y])
-            end
-          end
-      elseif MOD then
-        if not copy[1] then
-          copy = { y, x }
-        else
-          copy_step(copy, {y, x})
-        end
-      elseif not view.notes_input then
-        cond = have_substeps(y, x)
-        data.selected = { y, z == 1 and x or false }
-        if not data.selected[2] then tr_change(y) end
-        if not data.selected[2] and data.ui_index < 1 then data.ui_index = 1 end
-       if z == 1 then
-          down_time = util.time()
-        else
-          hold_time = util.time() - down_time
-          held = hold_time > 0.2 and true or false
-          x = get_step(x)
-          if not cond then
-            data[data.pattern][y][x] = 1
-          elseif cond and not held then
-            clear_substeps(y, x)
-            data.selected = { y, false }
-            tr_change(y)
-          end
-        end
-      end
-    elseif view.patterns then
-      local id = to_id(x,y)
-      if y < 5 and z == 1 then
-        if SHIFT then
-          if data.pattern ~= id then
-            data[id] = nil
-          end
-        elseif MOD then
-            if not ptn_copy then
-              ptn_copy = id
-            else
-              copy_pattern(ptn_copy, id)
-            end
-        else
-          if hold['p'] == 1 then
-            first['p'] = id
-            if ptn_change_pending then
-                change_pattern(ptn_change_pending)
-                ptn_change_pending = false
-            else
-                ptn_change_pending = id
-            end
-            data.metaseq.from = false
-            data.metaseq.to = false
-            ptn_copy = false
-          elseif hold['p'] == 2 then
-            second['p'] = id
-            data.metaseq.from = first['p']
-            data.metaseq.to = second['p']
-          end
-        end
-      elseif y == 6 then
-        data.metaseq.div = x
-      end
-    end
-  else
-    if controls[x] then
+function is_command_key(x, y, z)
+  y == 8
+end
+
+function key_is_down(z)
+  key_is_down(z)
+end
+
+function do_command_key(x, y, z)
+   if controls[x] then
       controls[x](z)
     end
-    if z == 1 then
-      if view.sampling or view.patterns then
+
+   if key_is_down(z) then
+     if contains({Views.Sampling, Views.Patterns}, view) then
         ui.start_polls()
       else
         ui.stop_polls()
       end
     end
+end
+
+function do_notes_input_key(x, y, z)
+  local tr = data.selected[1]
+  local device = data[data.pattern][tr].params[tr].device
+  local note = linn.grid_key(x, y, z, device and midi_out_devices[device])
+  local vel = data[data.pattern][tr].params[tr].velocity
+  local len  = data[data.pattern][tr].params[tr].length
+  --@chailight support for jf and wsyn output devices needed here
+  local pos = data[data.pattern].track.pos[tr]
+  if note then
+    if tr < 8 then
+      engine.noteOn(data.selected[1], music.note_num_to_freq(note), 1, data[data.pattern][data.selected[1]].params[tr].sample)
+    elseif params:get("takt_jf")==2 and device == 5 then
+      crow.ii.jf.play_note((note-60)/12,(vel/127) * 10)
+    elseif params:get("takt_wsyn")==2 and device == 6 then
+      --crow.ii.wsyn.lpg_time(util.linlin(1,127,5,-5,step_param.length))
+      crow.ii.wsyn.play_note((note-60)/12,(vel/127) * 5)
+    elseif params:get("takt_crow")==2 and device == 7 then
+      crow.output[1].volts = (note-0)/12 + crow_out_1_offset_v
+      crow.output[2].action = string.format("pulse(%.3f,10)", (len * 60/data[data.pattern].bpm/10))
+      crow.output[2].execute() -- this will be a trigger? what if we want a gate = note length?
+    else
+      midi_out_devices[step_parame.device]:note_on( msg.note, msg.vel, step_param.channel )
+    end
+    --if sequencer_metro.is_running and PATTERN_REC then
+    if is_running and PATTERN_REC then
+      place_note(tr, pos, note )
+    end
   end
+end
+
+function do_patterns_key(z, y, z)
+  local id = to_id(x,y)
+  if y < 5 and key_is_down(z) then
+    if SHIFT then
+      if data.pattern ~= id then
+        data[id] = nil
+      end
+    elseif MOD then
+      if not ptn_copy then
+        ptn_copy = id
+      else
+        copy_pattern(ptn_copy, id)
+      end
+    else
+      if hold['p'] == 1 then
+        first['p'] = id
+        if ptn_change_pending then
+          change_pattern(ptn_change_pending)
+          ptn_change_pending = false
+        else
+          ptn_change_pending = id
+        end
+        data.metaseq.from = false
+        data.metaseq.to = false
+        ptn_copy = false
+      elseif hold['p'] == 2 then
+        second['p'] = id
+        data.metaseq.from = first['p']
+        data.metaseq.to = second['p']
+      end
+    end
+  elseif y == 6 then
+    data.metaseq.div = x
+  end
+end
+
+function g.key(x, y, z)
+  screen.ping()
+
+
+  if is_command_key(x, y, z) then
+    return do_command_key(x, y, z)
+  -- XXX what if alt or shift?
+  elseif view == Views.NotesInput and not ALT and not SHIFT then
+    return do_notes_input_key(x, y, z)
+  end
+
+
+  local held
+  local cond = have_substeps(y, x)
+  if key_is_down(z) and hold[y] then
+    holdmax[y] = 0
+  end
+
+  hold[y] = hold[y] + (z * 2 - 1)
+  print("hold", y, hold[y])
+  hold['p'] = hold['p'] + (z * 2 - 1)
+  if hold[y] > holdmax[y] then
+    holdmax[y] = hold[y]
+  end
+
+  if view == Views.Patterns then
+    return do_patterns_key(x, y, z)
+  end
+
+  local y = data.selected[1] > 7 and y + 7 or y
+  -- XXX should this be specific to pattern view?
+  if SHIFT then
+    print("SHIFT")
+    if key_is_down(z) then
+      if x == 16 then
+        mute_track(y)
+      else
+        if x < 8 then
+          -- what is div?
+          set_div(y, x)
+        end
+      end
+    end
+  elseif ALT then -- @chailight additional logic to allow loop length setting in midi view
+    --print("ALT: set loop length")
+    if view == Views.StepsMidi then
+      --print("midi view")
+      --print("y", y)
+      if hold[y-7] == 1 then
+        first[y] = x
+        --print("first", x)
+      elseif hold[y-7] == 2 then
+        second[y] = x
+        --print("second", x)
+        set_loop(y, first[y], second[y])
+      end
+    elseif view == Views.StepsEngine then
+      --print("engine view")
+      --print("y", y)
+      if hold[y] == 1 then
+        first[y] = x
+        --print("first", x)
+      elseif hold[y] == 2 then
+        second[y] = x
+        --print("second", x)
+        set_loop(y, first[y], second[y])
+      end
+    end
+  elseif MOD then
+    if not copy[1] then
+      copy = { y, x }
+    else
+      copy_step(copy, {y, x})
+    end
+  elseif view != Views.NotesInput then
+    cond = have_substeps(y, x)
+    data.selected = { y, key_is_down(z) and x or false }
+    if not data.selected[2] then tr_change(y) end
+    if not data.selected[2] and data.ui_index < 1 then data.ui_index = 1 end
+    if key_is_down(z) then
+      down_time = util.time()
+    else
+      hold_time = util.time() - down_time
+      held = hold_time > 0.2 and true or false
+      x = get_step(x)
+      if not cond then
+        data[data.pattern][y][x] = 1
+      elseif cond and not held then
+        clear_substeps(y, x)
+        data.selected = { y, false }
+        tr_change(y)
+      end
+    end
+  end
+
 end
 
 function g.redraw()
   local glow = util.clamp(blink, 5, 15)
   g:all(0)
-  if view.notes_input and (not ALT and not SHIFT) then
+  if view == Views.NotesInput and (not ALT and not SHIFT) then
       linn.grid_redraw(g)
   end
   for y = 1, 7 do
     for x = 1, 16 do
-      if not view.patterns then
+      if not view == Views.Patterns then
         local yy = data.selected[1] > 7 and y + 7 or y
         --print("yy", yy)
         if SHIFT then
@@ -1665,7 +1713,7 @@ function g.redraw()
             if x >= t_start and x <= t_len then
               g:led(x, y, 3)
             end
-        elseif not SHIFT and not view.notes_input then
+        elseif not SHIFT and view != Views.NotesInput then
           -- main
           local substeps = have_substeps(yy, x)
           if substeps then
@@ -1698,9 +1746,9 @@ function g.redraw()
       end
     end
     -- playhead
-    --if (view.notes_input and  ALT ) or (not view.patterns and not view.notes_input) and sequencer_metro.is_running and not SHIFT then
-    if (view.notes_input and  ALT ) or (not view.patterns and not view.notes_input) and is_running and not SHIFT then
-      local yy = view.steps_midi and y + 7 or y
+    --if (Views.NotesInput and  ALT ) or (not view.patterns and not Views.NotesInput) and sequencer_metro.is_running and not SHIFT then
+    if (view = Views.NotesInput and  ALT ) or (view != Views.Patterns and view != Views.NotesInput) and is_running and not SHIFT then
+      local yy = view == Views.StepsMidi and y + 7 or y
       local pos = math.ceil(data[data.pattern].track.pos[yy] / 16)
       local level = have_substeps(yy, pos) and 15 or 6
       if not data[data.pattern].track.mute[yy] then g:led(pos, y, level) end
@@ -1710,13 +1758,13 @@ function g.redraw()
   --g:led(1, 8,  sequencer_metro.is_running and 15 or 6 )
   g:led(1, 8,  is_running and 15 or 6 )
 
-  g:led(3, 8,  (view.notes_input and PATTERN_REC) and glow or view.notes_input and 6 or 0)
-  g:led(5, 8,  (view.notes_input and data.selected[1] < 8 or view.steps_engine) and 15  or  6)
-  g:led(6, 8,  (view.notes_input and data.selected[1] > 7 or view.steps_midi) and 15  or  6)
+  g:led(3, 8,  (view == Views.NotesInput and PATTERN_REC) and glow or view == Views.NotesInput and 6 or 0)
+  g:led(5, 8,  (view == Views.NotesInput and data.selected[1] < 8 or view == Views.StepsEngine) and 15  or  6)
+  g:led(6, 8,  (view == Views.NotesInput and data.selected[1] > 7 or view == Views.StepsMidi) and 15  or  6)
 
-  g:led(8, 8,  view.notes_input and 15 or  6)
-  g:led(10, 8, view.sampling and 15 or 6)
-  g:led(11, 8, view.patterns and 15 or 6)
+  g:led(8, 8,  view == Views.NotesInput and 15 or  6)
+  g:led(10, 8, view == Views.Sampling and 15 or 6)
+  g:led(11, 8, view == Views.patterns and 15 or 6)
 
   g:led(13, 8, MOD and glow or 6 )
   g:led(15, 8, ALT and glow  or 6 )
