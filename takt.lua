@@ -821,7 +821,7 @@ local function midi_event(d)
   -- Note on
   elseif msg.type == "note_on" then
     print("note_on", msg.note, msg.vel)
-    if view != Views.Sampling then
+    if view ~= Views.Sampling then
       if tr < 8 then
           engine.noteOff(tr)
           engine.noteOn(tr, music.note_num_to_freq(msg.note), msg.vel / 127, data[data.pattern][tr].params[tostring(tr)].sample)
@@ -1137,8 +1137,8 @@ local controls = {
     end,
   --[3] = function(z)  if Views.NotesInput and key_is_down(z) and sequencer_metro.is_running then PATTERN_REC = not PATTERN_REC end end,
   [3] = function(z)  if view == Views.NotesInput and key_is_down(z) and is_running then PATTERN_REC = not PATTERN_REC end end,
-  [5] = function(z)  if key_is_down(z) then if view != Views.NotesInput then set_view(Views.StepsEngine) PATTERN_REC = false end tr_change(1)  end end,
-  [6] = function(z)  if key_is_down(z) then if view != Views.NotesInput then set_view(Views.StepsMidi) PATTERN_REC = false end tr_change(8)  end end,
+  [5] = function(z)  if key_is_down(z) then if view ~= Views.NotesInput then set_view(Views.StepsEngine) PATTERN_REC = false end tr_change(1)  end end,
+  [6] = function(z)  if key_is_down(z) then if view ~= Views.NotesInput then set_view(Views.StepsMidi) PATTERN_REC = false end tr_change(8)  end end,
   [8] = function(z)  if key_is_down(z) then set_view(Views.NotesInput and (data.selected[1] < 8 and Views.StepsEngine or Views.StepsMidi) or 'notes_input') end end,
   [10] = function(z) if key_is_down(z) then set_view(view == Views.Sampling and (data.selected[1] < 8 and Views.StepsEngine or Views.StepsMidi) or 'sampling') end  end,
   [11] = function(z) if key_is_down(z) then set_view(view == Views.Patterns and (data.selected[1] < 8 and Views.StepsEngine or Views.StepsMidi) or 'patterns') end end,
@@ -1431,7 +1431,7 @@ function key(n,z)
       --open_settings(2)
       --open_settings(3.5)
       --open_settings(5.5)
-    elseif view != Views.StepsMidi then
+    elseif view ~= Views.StepsMidi then
       if data.ui_index == 1 and key_is_down(z)  then
         local sample_id = data[data.pattern][data.selected[1]].params[is_lock()].sample
         browser.enter(_path.audio, timber.load_sample, sample_id)
@@ -1506,7 +1506,7 @@ end
 
 
 function is_command_key(x, y, z)
-  y == 8
+  return y == 8
 end
 
 function key_is_down(z)
@@ -1667,7 +1667,7 @@ function g.key(x, y, z)
     else
       copy_step(copy, {y, x})
     end
-  elseif view != Views.NotesInput then
+  elseif view ~= Views.NotesInput then
     cond = have_substeps(y, x)
     data.selected = { y, key_is_down(z) and x or false }
     if not data.selected[2] then tr_change(y) end
@@ -1713,7 +1713,7 @@ function g.redraw()
             if x >= t_start and x <= t_len then
               g:led(x, y, 3)
             end
-        elseif not SHIFT and view != Views.NotesInput then
+        elseif not SHIFT and view ~= Views.NotesInput then
           -- main
           local substeps = have_substeps(yy, x)
           if substeps then
@@ -1747,7 +1747,7 @@ function g.redraw()
     end
     -- playhead
     --if (Views.NotesInput and  ALT ) or (not view.patterns and not Views.NotesInput) and sequencer_metro.is_running and not SHIFT then
-    if (view = Views.NotesInput and  ALT ) or (view != Views.Patterns and view != Views.NotesInput) and is_running and not SHIFT then
+    if (view == Views.NotesInput and  ALT) or (view ~= Views.Patterns and view ~= Views.NotesInput) and is_running and not SHIFT then
       local yy = view == Views.StepsMidi and y + 7 or y
       local pos = math.ceil(data[data.pattern].track.pos[yy] / 16)
       local level = have_substeps(yy, pos) and 15 or 6
