@@ -111,15 +111,15 @@ local g = grid.connect()
 local data = { pattern = 1, ui_index = 1, selected = { 1, false },  metaseq = { from = 1, to = 1, div = 1}, [1] = takt_utils.make_default_pattern() }
 local Views = {
   -- the main sequencer view
-  StepsEngine = {},
+  StepsEngine = {name="main"},
   -- the midi learn screeen
-  StepsMIDI = {},
+  StepsMIDI = {name="midi"},
   -- play grid like a keyboard
-  NotesInput = {},
+  NotesInput = {name = "notes"},
   -- recording a sample
-  Sampling = {},
+  Sampling = {name = "sampling"},
   -- pattern chaining?
-  Patterns = {}
+  Patterns = {name = "patterns"}
 }
 local view = Views.StepsEngine
 local choke = { 1, 2, 3, 4, 5, 6, 7, {},{},{},{},{},{},{}, ['8rt'] = {},['9rt'] = {},['10rt'] = {},['11rt'] = {}, ['12rt'] = {}, ['13rt'] = {},['14rt'] = {} }
@@ -337,6 +337,7 @@ local function contains(arr, val)
 end
 
 local function set_view(x)
+
   if sampler.rec then
     print("TODO sampler.rec blocks set_view")
     return
@@ -1139,13 +1140,29 @@ local controls = {
   [3] = function(z)  if view == Views.NotesInput and key_is_down(z) and is_running then PATTERN_REC = not PATTERN_REC end end,
   [5] = function(z)  if key_is_down(z) then if view ~= Views.NotesInput then set_view(Views.StepsEngine) PATTERN_REC = false end tr_change(1)  end end,
   [6] = function(z)  if key_is_down(z) then if view ~= Views.NotesInput then set_view(Views.StepsMidi) PATTERN_REC = false end tr_change(8)  end end,
-  [8] = function(z)  if key_is_down(z) then set_view(Views.NotesInput and (data.selected[1] < 8 and Views.StepsEngine or Views.StepsMidi) or 'notes_input') end end,
-  [10] = function(z) if key_is_down(z) then set_view(view == Views.Sampling and (data.selected[1] < 8 and Views.StepsEngine or Views.StepsMidi) or 'sampling') end  end,
-  [11] = function(z) if key_is_down(z) then set_view(view == Views.Patterns and (data.selected[1] < 8 and Views.StepsEngine or Views.StepsMidi) or 'patterns') end end,
-  [13] = function(z) MOD = key_is_down(z) and true or false if z == 0 then copy = { false, false } end end,
-  [15] = function(z) ALT = key_is_down(z) and true or false print("key ALT", ALT) end,
-  [16] = function(z) SHIFT = key_is_down(z) and true or false end,
+  [8]  = function(z) toggle_view(Views.NotesInput, z) end,
+  [10] = function(z) toggle_view(Views.Sampling, z) end,
+  [11] = function(z) toggle_view(Views.Patterns, z) end,
+  [13] = function(z) MOD = key_is_down(z) and true or false if z == 0 then copy = { false, false } end print("MOD", MOD) end,
+  [15] = function(z) ALT = key_is_down(z) and true or false print("ALT", ALT) end,
+  [16] = function(z) SHIFT = key_is_down(z) and true or false print("SHIFT", SHIFT) end,
 }
+
+function toggle_view(v, z)
+  if key_is_down(z) then
+    local to = v
+    if view ~= v then
+      -- to = v
+    elseif data.selected[1] < 8 then
+      to = Views.StepsEngine
+    else
+      to =  Views.StepsMidi
+    end
+    print("set view to", to.name)
+    set_view(to)
+  end
+end
+
 
 local params_fx = {
   [1] = function(d) params:set('takt_comp_level', params:get('takt_comp_level') + d) end,
@@ -1474,7 +1491,7 @@ function redraw(stage)
 
   screen.clear()
 
-  ui.head(redraw_params[1], data, view, K1_is_hold(), rules, PATTERN_REC, browser.preview)
+  ui.head(redraw_params[1], data, view == Views.Sampling, K1_is_hold(), rules, PATTERN_REC, browser.preview)
 
   if view == Views.Sampling then
     local pos = sampler.get_pos()
@@ -1505,7 +1522,7 @@ function redraw(stage)
 end
 
 
-function is_command_key(x, y, z)
+function is_control_key(x, y, z)
   return y == 8
 end
 
@@ -1513,7 +1530,7 @@ function key_is_down(z)
   return z == 1
 end
 
-function do_command_key(x, y, z)
+function do_control_key(x, y, z)
    if controls[x] then
       controls[x](z)
     end
@@ -1597,8 +1614,8 @@ function g.key(x, y, z)
   screen.ping()
 
 
-  if is_command_key(x, y, z) then
-    return do_command_key(x, y, z)
+  if is_control_key(x, y, z) then
+    return do_control_key(x, y, z)
   -- XXX what if alt or shift?
   elseif view == Views.NotesInput and not ALT and not SHIFT then
     return do_notes_input_key(x, y, z)

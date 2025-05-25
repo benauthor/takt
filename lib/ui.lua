@@ -85,12 +85,12 @@ local function metro_icon(x, y, pos)
 end
 
 
-function ui.head(params_data, data, view, k1, rules, PATTERN_REC, preview)
+function ui.head(params_data, data, is_sampling_view, k1, rules, PATTERN_REC, preview)
   local tr = data.selected[1]
   local s = data.selected[2]
   local pos = data[data.pattern].track.pos[tr]
 
-  screen.level((view ~= Views.Sampling and data.ui_index == -6 ) and 5 or 2)
+  screen.level((not is_sampling_view and data.ui_index == -6 ) and 5 or 2)
   screen.rect(1, 0, 20, 7)
   screen.fill()
   screen.level(0)
@@ -117,7 +117,7 @@ function ui.head(params_data, data, view, k1, rules, PATTERN_REC, preview)
     screen.text_center( tr ..':' .. s )
   end
 
-    screen.level((view ~= Views.Sampling and data.ui_index == (not s and -5 or -3) ) and 5 or 2)
+    screen.level((not is_sampling_view and data.ui_index == (not s and -5 or -3) ) and 5 or 2)
     screen.rect(22, 0, 20, 7)
     screen.fill()
     screen.level(0)
@@ -138,7 +138,7 @@ else
   if s then
     local rule_name = rules[params_data.rule][1]
 
-    screen.level((view ~= Views.Sampling and data.ui_index == -2 ) and 5 or 2)
+    screen.level((not is_sampling_view and data.ui_index == -2 ) and 5 or 2)
     screen.rect(43, 0, 41, 7)
     screen.fill()
     screen.level(0)
@@ -153,7 +153,7 @@ else
     end
 
   else
-    screen.level((view ~= Views.Sampling and data.ui_index == -4) and 5 or 2)
+    screen.level((not is_sampling_view and data.ui_index == -4) and 5 or 2)
     screen.rect(43, 0, 25, 7)
     screen.fill()
     screen.level(0)
@@ -167,7 +167,7 @@ else
   screen.stroke()
 
   if not s then
-    screen.level((view ~= Views.Sampling and data.ui_index == -3) and 5 or 2)
+    screen.level((not is_sampling_view and data.ui_index == -3) and 5 or 2)
     screen.rect(69, 0, 15, 7)
     screen.fill()
     screen.level(0)
@@ -177,7 +177,7 @@ else
   end
 
   if not k1 then
-    screen.level((view ~= Views.Sampling and data.ui_index == -1) and 5 or 2)
+    screen.level((not is_sampling_view and data.ui_index == -1) and 5 or 2)
     screen.rect(85, 0, 9, 7)
     screen.fill()
     screen.level(0)
@@ -191,7 +191,7 @@ else
         local st = s and get_step(data.selected[2]) or util.round(data[data.pattern].track.pos[tr], 16) + 1
         local step = data[data.pattern][tr][st + (i - 1 )]
 
-        screen.level((view ~= Views.Sampling and data.ui_index == 0) and 5 or 2)
+        screen.level((not is_sampling_view and data.ui_index == 0) and 5 or 2)
         if step == 1 then
           screen.rect(92 + ((i - offset_x) * 4), offset_y + 1, 2, 2)
           screen.stroke()
