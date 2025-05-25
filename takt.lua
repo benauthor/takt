@@ -1510,7 +1510,7 @@ function is_command_key(x, y, z)
 end
 
 function key_is_down(z)
-  key_is_down(z)
+  return z == 1
 end
 
 function do_command_key(x, y, z)
@@ -1764,7 +1764,7 @@ function g.redraw()
 
   g:led(8, 8,  view == Views.NotesInput and 15 or  6)
   g:led(10, 8, view == Views.Sampling and 15 or 6)
-  g:led(11, 8, view == Views.patterns and 15 or 6)
+  g:led(11, 8, view == Views.Patterns and 15 or 6)
 
   g:led(13, 8, MOD and glow or 6 )
   g:led(15, 8, ALT and glow  or 6 )
