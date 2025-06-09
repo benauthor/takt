@@ -111,17 +111,17 @@ local g = grid.connect()
 local data = { pattern = 1, ui_index = 1, selected = { 1, false },  metaseq = { from = 1, to = 1, div = 1}, [1] = takt_utils.make_default_pattern() }
 local Views = {
   -- the main sequencer view
-  StepsEngine = {name="main"},
+  Steps = {name="steps"},
   -- the midi learn screeen
-  StepsMIDI = {name="midi"},
+  Midi = {name="midi"},
   -- play grid like a keyboard
-  NotesInput = {name = "notes"},
+  Tonal = {name = "tonal"},
   -- recording a sample
   Sampling = {name = "sampling"},
   -- pattern chaining?
   Patterns = {name = "patterns"}
 }
-local view = Views.StepsEngine
+local view = Views.Steps
 local choke = { 1, 2, 3, 4, 5, 6, 7, {},{},{},{},{},{},{}, ['8rt'] = {},['9rt'] = {},['10rt'] = {},['11rt'] = {}, ['12rt'] = {}, ['13rt'] = {},['14rt'] = {} }
 local dividers  = { [1] = 16, [2] = 8, [3] = 4, [4] = 3, [5] = 2, [6] = 1.5, [7] = 1,}
 local midi_dividers  = { [1] = 16, [2] = 8, [3] = 4, [4] = 3, [5] = 1, [6] = 0.666, [7] = 0.545,}
@@ -857,7 +857,7 @@ local track_params = {
       data.metaseq.to = false --data.pattern
   end,
   [-5] = function(tr, s, d) -- rnd
-        local offset = view == Views.StepsMidi and 7 or 0
+        local offset = view == Views.Midi and 7 or 0
         data.selected[1] = util.clamp(data.selected[1] + d, 1 + offset, 7 + offset)
         tr_change(data.selected[1])
   end,
@@ -1136,11 +1136,15 @@ local controls = {
         end
       end
     end,
-  --[3] = function(z)  if Views.NotesInput and key_is_down(z) and sequencer_metro.is_running then PATTERN_REC = not PATTERN_REC end end,
-  [3] = function(z)  if view == Views.NotesInput and key_is_down(z) and is_running then PATTERN_REC = not PATTERN_REC end end,
-  [5] = function(z)  if key_is_down(z) then if view ~= Views.NotesInput then set_view(Views.StepsEngine) PATTERN_REC = false end tr_change(1)  end end,
-  [6] = function(z)  if key_is_down(z) then if view ~= Views.NotesInput then set_view(Views.StepsMidi) PATTERN_REC = false end tr_change(8)  end end,
-  [8]  = function(z) toggle_view(Views.NotesInput, z) end,
+  [3] = function(z)
+    -- Toggles pattern record in tonal view
+    if view == Views.Tonal and key_is_down(z) and is_running then
+      PATTERN_REC = not PATTERN_REC
+    end
+  end,
+  [5]  = function(z) toggle_view(Views.Steps, z) tr_change(1) end,
+  [6]  = function(z) toggle_view(Views.Midi, z) tr_change(8) end,
+  [8]  = function(z) toggle_view(Views.Tonal, z) end,
   [10] = function(z) toggle_view(Views.Sampling, z) end,
   [11] = function(z) toggle_view(Views.Patterns, z) end,
   [13] = function(z) MOD = key_is_down(z) and true or false if z == 0 then copy = { false, false } end print("MOD", MOD) end,
@@ -1150,14 +1154,8 @@ local controls = {
 
 function toggle_view(v, z)
   if key_is_down(z) then
+    PATTERN_REC = false
     local to = v
-    if view ~= v then
-      -- to = v
-    elseif data.selected[1] < 8 then
-      to = Views.StepsEngine
-    else
-      to =  Views.StepsMidi
-    end
     print("set view to", to.name)
     set_view(to)
   end
@@ -1369,7 +1367,7 @@ function enc(n,d)
     if not view == Views.Sampling then
       if not K1_is_hold() then
         --@chailight adjusted limit from 18 to 19 because of additional chord function for midi ui_index
-        data.ui_index = util.clamp(data.ui_index + d, not data.selected[2] and 1 or -3, contains({Views.StepsMidi, Views.Patterns}, view) and 19 or 20)
+        data.ui_index = util.clamp(data.ui_index + d, not data.selected[2] and 1 or -3, contains({Views.Midi, Views.Patterns}, view) and 19 or 20)
       else
         data.ui_index = util.clamp(data.ui_index + d, view == Views.Patterns and -1 or -6, -1)
       end
@@ -1411,7 +1409,7 @@ function enc(n,d)
             end
           end
 
-      if view == Views.NotesInput then set_locks(get_params(tr)) end
+      if view == Views.Tonal then set_locks(get_params(tr)) end
       end
     else
       sampling_params[data.ui_index](d)
@@ -1436,7 +1434,7 @@ function key(n,z)
     if view == Views.Patterns then
       -- XXX TODO i lost the thread
       print("XXX TODO I LOST THE THREAD")
-      -- set_view(Views.notes_input and (data.selected[1] < 8 and Views.StepsEngine or Views.StepsMidi))
+      -- set_view(Views.notes_input and (data.selected[1] < 8 and Views.Steps or Views.Midi))
     elseif browser.open then
       browser.exit()
     end
@@ -1448,7 +1446,7 @@ function key(n,z)
       --open_settings(2)
       --open_settings(3.5)
       --open_settings(5.5)
-    elseif view ~= Views.StepsMidi then
+    elseif view ~= Views.Midi then
       if data.ui_index == 1 and key_is_down(z)  then
         local sample_id = data[data.pattern][data.selected[1]].params[is_lock()].sample
         browser.enter(_path.audio, timber.load_sample, sample_id)
@@ -1544,7 +1542,8 @@ function do_control_key(x, y, z)
     end
 end
 
-function do_notes_input_key(x, y, z)
+-- tonal mode key even: play grid like a keyboard
+function do_tonal_key(x, y, z)
   local tr = data.selected[1]
   local device = data[data.pattern][tr].params[tr].device
   local note = linn.grid_key(x, y, z, device and midi_out_devices[device])
@@ -1617,8 +1616,8 @@ function g.key(x, y, z)
   if is_control_key(x, y, z) then
     return do_control_key(x, y, z)
   -- XXX what if alt or shift?
-  elseif view == Views.NotesInput and not ALT and not SHIFT then
-    return do_notes_input_key(x, y, z)
+  elseif view == Views.Tonal and not ALT and not SHIFT then
+    return do_tonal_key(x, y, z)
   end
 
 
@@ -1655,7 +1654,7 @@ function g.key(x, y, z)
     end
   elseif ALT then -- @chailight additional logic to allow loop length setting in midi view
     --print("ALT: set loop length")
-    if view == Views.StepsMidi then
+    if view == Views.Midi then
       --print("midi view")
       --print("y", y)
       if hold[y-7] == 1 then
@@ -1666,7 +1665,7 @@ function g.key(x, y, z)
         --print("second", x)
         set_loop(y, first[y], second[y])
       end
-    elseif view == Views.StepsEngine then
+    elseif view == Views.Steps then
       --print("engine view")
       --print("y", y)
       if hold[y] == 1 then
@@ -1684,7 +1683,7 @@ function g.key(x, y, z)
     else
       copy_step(copy, {y, x})
     end
-  elseif view ~= Views.NotesInput then
+  elseif view ~= Views.Tonal then
     cond = have_substeps(y, x)
     data.selected = { y, key_is_down(z) and x or false }
     if not data.selected[2] then tr_change(y) end
@@ -1710,7 +1709,7 @@ end
 function g.redraw()
   local glow = util.clamp(blink, 5, 15)
   g:all(0)
-  if view == Views.NotesInput and (not ALT and not SHIFT) then
+  if view == Views.Tonal and (not ALT and not SHIFT) then
       linn.grid_redraw(g)
   end
   for y = 1, 7 do
@@ -1730,7 +1729,7 @@ function g.redraw()
             if x >= t_start and x <= t_len then
               g:led(x, y, 3)
             end
-        elseif not SHIFT and view ~= Views.NotesInput then
+        elseif not SHIFT and view ~= Views.Tonal then
           -- main
           local substeps = have_substeps(yy, x)
           if substeps then
@@ -1763,9 +1762,9 @@ function g.redraw()
       end
     end
     -- playhead
-    --if (Views.NotesInput and  ALT ) or (not view.patterns and not Views.NotesInput) and sequencer_metro.is_running and not SHIFT then
-    if (view == Views.NotesInput and  ALT) or (view ~= Views.Patterns and view ~= Views.NotesInput) and is_running and not SHIFT then
-      local yy = view == Views.StepsMidi and y + 7 or y
+    --if (Views.Tonal and  ALT ) or (not view.patterns and not Views.Tonal) and sequencer_metro.is_running and not SHIFT then
+    if (view == Views.Tonal and  ALT) or (view ~= Views.Patterns and view ~= Views.Tonal) and is_running and not SHIFT then
+      local yy = view == Views.Midi and y + 7 or y
       local pos = math.ceil(data[data.pattern].track.pos[yy] / 16)
       local level = have_substeps(yy, pos) and 15 or 6
       if not data[data.pattern].track.mute[yy] then g:led(pos, y, level) end
@@ -1775,11 +1774,11 @@ function g.redraw()
   --g:led(1, 8,  sequencer_metro.is_running and 15 or 6 )
   g:led(1, 8,  is_running and 15 or 6 )
 
-  g:led(3, 8,  (view == Views.NotesInput and PATTERN_REC) and glow or view == Views.NotesInput and 6 or 0)
-  g:led(5, 8,  (view == Views.NotesInput and data.selected[1] < 8 or view == Views.StepsEngine) and 15  or  6)
-  g:led(6, 8,  (view == Views.NotesInput and data.selected[1] > 7 or view == Views.StepsMidi) and 15  or  6)
+  g:led(3, 8,  (view == Views.Tonal and PATTERN_REC) and glow or view == Views.Tonal and 6 or 0)
+  g:led(5, 8,  (view == Views.Tonal and data.selected[1] < 8 or view == Views.Steps) and 15  or  6)
+  g:led(6, 8,  (view == Views.Tonal and data.selected[1] > 7 or view == Views.Midi) and 15  or  6)
 
-  g:led(8, 8,  view == Views.NotesInput and 15 or  6)
+  g:led(8, 8,  view == Views.Tonal and 15 or  6)
   g:led(10, 8, view == Views.Sampling and 15 or 6)
   g:led(11, 8, view == Views.Patterns and 15 or 6)
 
