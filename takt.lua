@@ -33,14 +33,19 @@ local time_map = controlspec.new(0.0001, 5, 'exp', 0, 0.1, 's')
 
 --
 local ei = eli.Instrument.new()
+local g = ei.grid
+ei.before_key = function(x, y, z) screen.ping() end
 local views = {}
 views.steps = ei:new_view("steps")
 views.midi = ei:new_view("midi")
 views.notes = ei:new_view("notes")
 views.sampling = ei:new_view("sampling")
 views.patterns = ei:new_view("patterns")
+
+-- forward-declared so the controls closures bind to these locals (assigned later)
+local controlkeydownfns, controlkeyupfns
+
 local controls = eli.Box.new(16, 1)
--- TODO controls.tick -> LEDs to indicate current state of alt, shift, start/stop, active mode, and so on
 controls.keydown = function(box, seq)
   controlkeydownfns[seq] and controlkeydownfns[seq]() or print("unmapped control keydown")
 end
@@ -48,15 +53,51 @@ controls.keyup = function(box, seq)
   controlkeyupfns[seq] and controlkeyupfns[seq]() or print("unmapped control keyup")
 end
 
+for _, v in pairs(views) do
+  v:add_box(controls, 1, 8)
+end
 
+
+
+-- `tr` is a track index 1..14:
+--   1..7  -- engine tracks; trigger the timber sampler engine
+--   8..14 -- midi tracks; send note/cc to the configured midi device
+-- Per-track state lives on `data[data.pattern][tr]` (substep flags + per-step
+-- params, with the track-default params keyed by the *string* `tostring(tr)`)
+-- and on `data[data.pattern].track.{div,mute,pos,start,len,cycle}[tr]`.
+-- The grid is only 7 rows tall, so the steps and midi views show one range at
+-- a time; `data.selected[1]` (also a `tr` value) decides which.
+local function is_engine(tr) return tr < 8 end
+local function is_midi(tr)   return tr > 7 end
 
 local data = { pattern = 1, ui_index = 1, selected = { 1, false },  metaseq = { from = 1, to = 1, div = 1}, [1] = takt_utils.make_default_pattern() }
-local view = { steps_engine = true, steps_midi = false, notes_input = false, sampling = false, patterns = false }
 local choke = { 1, 2, 3, 4, 5, 6, 7, {},{},{},{},{},{},{}, ['8rt'] = {},['9rt'] = {},['10rt'] = {},['11rt'] = {}, ['12rt'] = {}, ['13rt'] = {},['14rt'] = {} }
 local dividers  = { [1] = 16, [2] = 8, [3] = 4, [4] = 3, [5] = 2, [6] = 1.5, [7] = 1,}
 local midi_dividers  = { [1] = 16, [2] = 8, [3] = 4, [4] = 3, [5] = 1, [6] = 0.666, [7] = 0.545,}
 local sampling_actions = {[-1] = function()end,[0]=function()end, [1] = sampler.rec, [2] = sampler.play, [3] = sampler.save_and_load, [4] = sampler.clear, [5] = sampler.play, [6] = sampler.play }
 local lfo_1, lfo_2 = {[5] = true, [13] = true,  }, {[6] = true, [14] = true,  }
+
+-- `data.ui_index` is the screen navigation cursor — which tile/parameter is
+-- focused for editing with encoder 3. It means different things per view,
+-- indexed against per-view param tables:
+--   steps    -> step_params       (1..20)  sample, note, start, end, fm1/2,
+--                                          vol, pan, adsr, am1/2, qual, mode,
+--                                          filter freq/res, delay, reverb
+--   midi     -> midi_step_params  (1..18)  note, vel, len, ch, dev, pgm,
+--                                          + 6 cc values, 6 cc numbers
+--   patterns -> params_fx         (1..18)  comp, reverb, delay, lfo 1/2
+--   sampling -> sampling_params   (-1..6)  mode, source, save, rec, play,
+--                                          clear, start, length
+-- Negative indices flip to track-level / global params:
+--   ui_index < 1 + K1 not held -> trig_params  (-3..0:  div, rule, retrig, offset)
+--   ui_index < 1 + K1 held     -> track_params (-6..-1: ptn, track-step, bpm,
+--                                                       scale, midi sync, sidechain)
+-- The dispatcher in `steps_enc3` picks the right table at runtime.
+--
+-- `last_index` is a stash for the swap that happens when entering sampling /
+-- patterns views: their index ranges don't overlap with the step views, so
+-- `set_view` saves the current ui_index here, resets to 1, and restores on
+-- the way back to a step-grid view.
 local last_index = 1
 
 
@@ -91,14 +132,14 @@ local rules = {
   [16] = {'+- NOTE', function(tr, step)
     data[data.pattern][tr].params[step].note = util.clamp(data[data.pattern][tr].params[step].note + math.random(-20,20),24,120) return true end },
   [17] = {'RND START', function(tr, step)
-    if tr < 8 then
+    if is_engine(tr) then
       local max_frame = params:lookup_param("end_frame_" .. data[data.pattern][tr].params[step].sample).controlspec.maxval
       data[data.pattern][tr].params[step].start_frame = math.random(0, max_frame)
       data[data.pattern][tr].params[step].loop_start = math.random(0, max_frame)
       end
     return true end },
   [18] = {'RND ST-EN', function(tr, step)
-    if tr < 8 then
+    if is_engine(tr) then
       local max_frame = params:lookup_param("end_frame_" .. data[data.pattern][tr].params[step].sample).controlspec.maxval
       data[data.pattern][tr].params[step].start_frame = math.random(0, max_frame)
       data[data.pattern][tr].params[step].end_frame = math.random(0, max_frame)
@@ -236,19 +277,16 @@ end
 -- views
 
 local function set_view(x)
+  if sampler.rec then return end
   ei:switch_to(x)
-  -- if not sampler.rec then
-  --   for k, v in pairs(view) do
-  --     view[k] = k == x and true or false
-  --   end
-  -- end
-  -- if view.sampling or view.patterns then
-  --   last_index = data.ui_index
-  --   data.ui_index = 1
-  -- else
-  --   data.ui_index = last_index
-  -- end
-
+  if ei.active == views.sampling or ei.active == views.patterns then
+    last_index = data.ui_index
+    data.ui_index = 1
+    ui.start_polls()
+  else
+    data.ui_index = last_index
+    ui.stop_polls()
+  end
 end
 
 --- steps
@@ -384,7 +422,7 @@ end
 local function mute_track(tr)
 
   data[data.pattern].track.mute[tr] = not data[data.pattern].track.mute[tr]
-  if data[data.pattern].track.mute[tr] and tr < 8 then
+  if data[data.pattern].track.mute[tr] and is_engine(tr) then
     engine.noteOff(choke[tr])
   else
     print('midi mute')
@@ -537,7 +575,7 @@ local function seqrun(counter)
         local pos = data[data.pattern].track.pos[tr]
         local trig = data[data.pattern][tr][pos]
 
-        if tr > 7 and choke[tr][6] then
+        if is_midi(tr) and choke[tr][6] then
           if pos > choke[tr][5] + choke[tr][6] then
             midi_out_devices[choke[tr][1]]:note_off(choke[tr][2], choke[tr][3], choke[tr][4])
           end
@@ -560,7 +598,7 @@ local function seqrun(counter)
               redraw_params[2] = step_param
             end
 
-            if tr < 8 then
+            if is_engine(tr) then
 
               set_locks(step_param)
               choke_group(tr, step_param.sample)
@@ -600,7 +638,7 @@ local function midi_event(d)
     --engine.noteOff(tr)
   -- Note on
   elseif msg.type == "note_on" then
-    if not view.sampling then
+    if ei.active ~= views.sampling then
       engine.noteOff(tr)
       engine.noteOn(tr, music.note_num_to_freq(msg.note), msg.vel / 127, data[data.pattern][tr].params[tostring(tr)].sample)
       if sequencer_metro.is_running and PATTERN_REC then
@@ -621,7 +659,7 @@ local track_params = {
       data.metaseq.to = false --data.pattern
   end,
   [-5] = function(tr, s, d) -- rnd
-        local offset = view.steps_midi and 7 or 0
+        local offset = ei.active == views.midi and 7 or 0
         data.selected[1] = util.clamp(data.selected[1] + d, 1 + offset, 7 + offset)
         tr_change(data.selected[1])
   end,
@@ -818,7 +856,7 @@ local trig_params = {
   end,
 }
 
-local controlkeydownfns = {
+controlkeydownfns = {
   [1] = function() -- start / stop,
     if sequencer_metro.is_running then
       sequencer_metro:stop()
@@ -836,8 +874,8 @@ local controlkeydownfns = {
     comp_shut(sequencer_metro.is_running)
   end,
   [3] = function() -- pattern record toggle
-    -- TODO notes input will have different control box
-    -- if view.notes_input and sequencer_metro.is_running then
+    -- TODO notes view will have a different control box; for now PATTERN_REC
+    -- toggles whenever the sequencer is running, regardless of active view.
     if sequencer_metro.is_running then
       PATTERN_REC = not PATTERN_REC
     end
@@ -872,7 +910,7 @@ local controlkeydownfns = {
   end,
 }
 
-local controlkeyupfns = {
+controlkeyupfns = {
   [13] = function(z)
     MOD = false
     copy = { false, false }
@@ -884,6 +922,274 @@ local controlkeyupfns = {
     SHIFT = false
   end,
 }
+
+-- controls row 8 LEDs: transport state, view selection, modifiers.
+-- (controls box itself is created up top so it can be added to all views,
+-- but its tick callback needs `data`/`views`/`sequencer_metro` etc. in scope.)
+controls.floor = 0
+controls.tick = function(box)
+  local glow = util.clamp(blink, 5, 15)
+  local in_notes = ei.active == views.notes
+  box:all(0)
+  box:led(1, sequencer_metro.is_running and 15 or 6)
+  box:led(3, (in_notes and PATTERN_REC) and glow
+              or in_notes and 6
+              or 0)
+  box:led(5, (in_notes and is_engine(data.selected[1]) or ei.active == views.steps) and 15 or 6)
+  box:led(6, (in_notes and is_midi(data.selected[1]) or ei.active == views.midi) and 15 or 6)
+  box:led(8, in_notes and 15 or 6)
+  box:led(10, ei.active == views.sampling and 15 or 6)
+  box:led(11, ei.active == views.patterns and 15 or 6)
+  box:led(13, MOD and glow or 6)
+  box:led(15, ALT and glow or 6)
+  box:led(16, SHIFT and glow or 6)
+end
+
+-- patterns view: 16x4 pattern grid at row 1, 16x1 metaseq-div selector at row 6
+do
+  local patterns_grid = eli.Box.new(16, 4)
+  local metaseq_div = eli.Box.new(16, 1)
+  views.patterns:add_box(patterns_grid, 1, 1)
+  views.patterns:add_box(metaseq_div, 1, 6)
+
+  local hold_count = 0
+  local first_id
+
+  patterns_grid.keydown = function(box, seq)
+    hold_count = hold_count + 1
+    local id = seq -- box seq matches to_id(x, y) for a 16-wide box at origin
+    if SHIFT then
+      if data.pattern ~= id then
+        data[id] = nil
+      end
+    elseif MOD then
+      if not ptn_copy then
+        ptn_copy = id
+      else
+        copy_pattern(ptn_copy, id)
+      end
+    else
+      if hold_count == 1 then
+        first_id = id
+        if ptn_change_pending then
+          change_pattern(ptn_change_pending)
+          ptn_change_pending = false
+        else
+          ptn_change_pending = id
+        end
+        data.metaseq.from = false
+        data.metaseq.to = false
+        ptn_copy = false
+      elseif hold_count == 2 then
+        data.metaseq.from = first_id
+        data.metaseq.to = id
+      end
+    end
+  end
+
+  patterns_grid.keyup = function(box, seq)
+    hold_count = math.max(0, hold_count - 1)
+  end
+
+  metaseq_div.keydown = function(box, seq)
+    data.metaseq.div = seq
+  end
+
+  patterns_grid.tick = function(box)
+    local glow = util.clamp(blink, 5, 14)
+    local from, to = data.metaseq.from, data.metaseq.to
+    for y = 1, 4 do
+      for x = 1, 16 do
+        local id = to_id(x, y)
+        local seq = (y - 1) * 16 + x
+        local level =
+          (id == ptn_change_pending and sequencer_metro.is_running and glow)
+          or ((from and to) and id == data.pattern and glow)
+          or (id >= (from or data.pattern) and id <= (to or data.pattern) and 9)
+          or (data.pattern == id and 15)
+          or (pattern_exists(x, y) and 6)
+          or 2
+        box:led(seq, level)
+      end
+    end
+  end
+
+  metaseq_div.tick = function(box)
+    for x = 1, 16 do
+      box:led(x, x == data.metaseq.div and 15 or 2)
+    end
+  end
+end
+
+-- step grid: 16x7 step matrix shared between `steps` and `midi` views.
+-- Also added to `sampling` view (legacy behavior — sampling has no grid UI of
+-- its own, the step grid stays live underneath the sampling screen).
+do
+  local step_grid = eli.Box.new(16, 7)
+  step_grid.floor = 0 -- step cells default to off, not floor brightness
+  views.steps:add_box(step_grid, 1, 1)
+  views.midi:add_box(step_grid, 1, 1)
+  views.sampling:add_box(step_grid, 1, 1)
+
+  local hold_row = {0, 0, 0, 0, 0, 0, 0}
+  local first_x  = {0, 0, 0, 0, 0, 0, 0}
+  local press_down_time = 0
+
+  local function decode(seq)
+    local x = ((seq - 1) % 16) + 1
+    local gy = math.floor((seq - 1) / 16) + 1
+    local tr = is_midi(data.selected[1]) and gy + 7 or gy
+    return x, gy, tr
+  end
+
+  step_grid.keydown = function(box, seq)
+    local x, gy, tr = decode(seq)
+    hold_row[gy] = hold_row[gy] + 1
+
+    if SHIFT then
+      if x == 16 then
+        mute_track(tr)
+      elseif x < 8 then
+        set_div(tr, x)
+      end
+    elseif ALT then
+      if hold_row[gy] == 1 then
+        first_x[gy] = x
+      elseif hold_row[gy] == 2 then
+        set_loop(tr, first_x[gy], x)
+      end
+    elseif MOD then
+      if not copy[1] then
+        copy = { tr, x }
+      else
+        copy_step(copy, { tr, x })
+      end
+    else
+      data.selected = { tr, x }
+      press_down_time = util.time()
+    end
+  end
+
+  step_grid.keyup = function(box, seq)
+    local x, gy, tr = decode(seq)
+    hold_row[gy] = math.max(0, hold_row[gy] - 1)
+    if SHIFT or ALT or MOD then return end
+
+    data.selected = { tr, false }
+    tr_change(tr)
+    if data.ui_index < 1 then data.ui_index = 1 end
+
+    local held = (util.time() - press_down_time) > 0.2
+    local cond = have_substeps(tr, x)
+    local sx = get_step(x)
+    if not cond then
+      data[data.pattern][tr][sx] = 1
+    elseif cond and not held then
+      clear_substeps(tr, sx)
+    end
+  end
+
+  step_grid.tick = function(box)
+    box:all(0)
+    local sel_tr = data.selected[1]
+    local sel_step = data.selected[2]
+    local pat = data[data.pattern]
+    local midi_offset = is_midi(sel_tr) and 7 or 0
+
+    for gy = 1, 7 do
+      local tr = gy + midi_offset
+      for x = 1, 16 do
+        local seq = (gy - 1) * 16 + x
+        if SHIFT then
+          if x < 8 then
+            box:led(seq, x == 5 and 6 or 3)
+          end
+          if x == pat.track.div[tr] then
+            box:led(seq, 15)
+          end
+          if x == 16 then
+            box:led(seq, pat.track.mute[tr] and 15 or 6)
+          end
+        elseif ALT then
+          local t_start = get_tr_start(tr)
+          local t_len = get_tr_len(tr)
+          if x >= t_start and x <= t_len then
+            box:led(seq, 3)
+          end
+        else
+          if have_substeps(tr, x) then
+            local t_start = get_tr_start(tr)
+            local t_len = get_tr_len(tr)
+            local level = (sel_tr == tr and sel_step == x and 15)
+              or ((x < t_start or x > t_len) and 5)
+              or (pat.track.mute[tr] and 5)
+              or 10
+            box:led(seq, level)
+          end
+        end
+      end
+
+      -- playhead
+      if sequencer_metro.is_running and not SHIFT then
+        local pos_x = math.ceil(pat.track.pos[tr] / 16)
+        if pos_x >= 1 and pos_x <= 16 and not pat.track.mute[tr] then
+          local seq = (gy - 1) * 16 + pos_x
+          box:led(seq, have_substeps(tr, pos_x) and 15 or 6)
+        end
+      end
+    end
+  end
+end
+
+-- notes view: 16x7 linn-style music keyboard. Pressing a key plays a note on
+-- the currently selected track (engine track triggers the sampler engine,
+-- midi track sends note-on to the configured midi device). When PATTERN_REC
+-- is on and the sequencer is running, the note is recorded onto the current
+-- step. Modifier overlays (SHIFT/ALT/MOD) are intentionally not handled here
+-- — notes view is a pure keyboard surface.
+do
+  local notes_keyboard = eli.Box.new(16, 7)
+  views.notes:add_box(notes_keyboard, 1, 1)
+
+  local last_seq = 0 -- focus highlight; replaces linn's private `focus` table
+
+  notes_keyboard.keydown = function(box, seq)
+    local x = ((seq - 1) % 16) + 1
+    local gy = math.floor((seq - 1) / 16) + 1
+    local tr = data.selected[1]
+    local track_default = data[data.pattern][tr].params[tostring(tr)]
+    local note = linn.grid_key(x, gy, 1, track_default.device and midi_out_devices[track_default.device])
+    if not note then return end
+
+    last_seq = seq
+    if is_engine(tr) then
+      engine.noteOn(tr, music.note_num_to_freq(note), 1, track_default.sample)
+    end
+    if sequencer_metro.is_running and PATTERN_REC then
+      place_note(tr, data[data.pattern].track.pos[tr], note)
+    end
+  end
+
+  notes_keyboard.keyup = function(box, seq)
+    local x = ((seq - 1) % 16) + 1
+    local gy = math.floor((seq - 1) / 16) + 1
+    local tr = data.selected[1]
+    local device = data[data.pattern][tr].params[tostring(tr)].device
+    linn.grid_key(x, gy, 0, device and midi_out_devices[device])
+    last_seq = 0
+  end
+
+  notes_keyboard.tick = function(box)
+    box:all(0)
+    for seq = 1, 16 * 7 do
+      box:led(seq, linn.note_at(seq).l)
+    end
+    box:led(16, 3) -- top-right corner marker (legacy: g:led(16, 1, 3))
+    if last_seq > 0 then
+      box:led(last_seq, 10)
+    end
+  end
+end
 
 local params_fx = {
   [1] = function(d) params:set('takt_comp_level', params:get('takt_comp_level') + d) end,
@@ -912,6 +1218,171 @@ local params_fx = {
   [18] = function(d) params:set('lfo_2_wave_shape', params:get('lfo_2_wave_shape') + d) end,
 }
 
+-- per-view norns front-panel handlers --------------------------------------
+-- Shared helpers; the wrappers in `enc` / `key` dispatch to the active view's
+-- `:enc` / `:key` (set per-view below).
+
+local function track_select_enc(d)
+  local offset = is_midi(data.selected[1]) and 7 or 0
+  data.selected[1] = util.clamp(data.selected[1] + d, 1 + offset, 7 + offset)
+  tr_change(data.selected[1])
+end
+
+-- enc(2) ui_index navigation for step-grid-style views; `upper` is the upper
+-- bound when not holding K1 (steps/notes = 20, midi/patterns = 18).
+local function steps_enc2(d, upper)
+  if K1_is_hold() then
+    data.ui_index = util.clamp(data.ui_index + d, -6, -1)
+  else
+    data.ui_index = util.clamp(data.ui_index + d, data.selected[2] and -3 or 1, upper)
+  end
+end
+
+-- enc(3) step / track / trig param edit (steps, midi, notes share this).
+local function steps_enc3(d)
+  local tr = data.selected[1]
+  local p = is_lock()
+  local t = type(p) == 'number' and get_step(p) or p
+  data[data.pattern][tr].params[t].lock = data.selected[2] and 1 or 0
+  redraw_params[1] = get_params(tr, is_lock())
+  redraw_params[2] = redraw_params[1]
+  if K1_is_hold() then
+    track_params[data.ui_index](tr, p, d)
+  else
+    local params_t = data.ui_index < 1 and trig_params or is_engine(tr) and step_params or midi_step_params
+    if type(p) == 'string' then
+      params_t[data.ui_index](tr, p, d)
+    else
+      if data.ui_index > 0 then
+        for i = t, t + 15 do params_t[data.ui_index](tr, i, d) end
+      else
+        params_t[data.ui_index](tr, t, d)
+      end
+    end
+    if ei.active == views.notes then set_locks(get_params(tr)) end
+  end
+end
+
+-- key(1) ui_index reset, common to step-grid-style views.
+local function steps_key1()
+  data.ui_index = K1_is_hold() and -4 or 1
+end
+
+-- key(3) engine-track shortcuts (sample loading, filter type, lfo/send jumps).
+local function steps_key3(z)
+  if data.ui_index == 1 and z == 1 then
+    local sample_id = data[data.pattern][data.selected[1]].params[is_lock()].sample
+    browser.enter(_path.audio, timber.load_sample, sample_id)
+  elseif (data.ui_index == 3 or data.ui_index == 4) and z == 1 and sample_not_loaded(get_sample()) then
+    local sample_id = data[data.pattern][data.selected[1]].params[is_lock()].sample
+    browser.enter(_path.audio, timber.load_sample, sample_id)
+  elseif (data.ui_index == 17 or data.ui_index == 18) and z == 1 then
+    change_filter_type()
+  elseif lfo_1[data.ui_index] then
+    set_view('patterns')
+    data.ui_index = 15
+  elseif lfo_2[data.ui_index] then
+    set_view('patterns')
+    data.ui_index = 17
+  elseif data.ui_index == 19 then
+    set_view('patterns')
+    data.ui_index = 12
+  elseif data.ui_index == 20 then
+    set_view('patterns')
+    data.ui_index = 8
+  end
+end
+
+-- Per-view enc/key handlers, dispatched by view instance. Kept out of eli
+-- so that library stays grid-only.
+local view_enc, view_key = {}, {}
+
+view_enc[views.steps] = function(n, d)
+  if n == 1 then track_select_enc(d)
+  elseif n == 2 then steps_enc2(d, 20)
+  elseif n == 3 then steps_enc3(d)
+  end
+end
+
+view_enc[views.midi] = function(n, d)
+  if n == 1 then track_select_enc(d)
+  elseif n == 2 then steps_enc2(d, 18)
+  elseif n == 3 then steps_enc3(d)
+  end
+end
+
+view_enc[views.notes] = function(n, d)
+  if n == 1 then track_select_enc(d)
+  elseif n == 2 then steps_enc2(d, 20)
+  elseif n == 3 then steps_enc3(d)
+  end
+end
+
+view_enc[views.patterns] = function(n, d)
+  if n == 1 then
+    track_select_enc(d)
+  elseif n == 2 then
+    if K1_is_hold() then
+      data.ui_index = util.clamp(data.ui_index + d, -1, -1)
+    else
+      data.ui_index = util.clamp(data.ui_index + d, data.selected[2] and -3 or 1, 18)
+    end
+  elseif n == 3 then
+    if K1_is_hold() then
+      track_params[-1](data.selected[1], tostring(data.selected[1]), d)
+    else
+      params_fx[data.ui_index](d)
+    end
+  end
+end
+
+view_enc[views.sampling] = function(n, d)
+  if n == 1 then
+    track_select_enc(d)
+  elseif n == 2 then
+    if not sampler.rec then
+      data.ui_index = util.clamp(data.ui_index + d, -1, 6)
+    end
+  elseif n == 3 then
+    sampling_params[data.ui_index](d)
+  end
+end
+
+view_key[views.steps] = function(n, z)
+  if n == 1 then steps_key1()
+  elseif n == 3 then steps_key3(z)
+  end
+end
+
+view_key[views.midi] = function(n, z)
+  if n == 1 then steps_key1() end
+  -- midi view doesn't trigger the engine-track K3 shortcuts (sample browser,
+  -- filter type, lfo/send jumps) — those only apply to engine tracks.
+end
+
+view_key[views.notes] = function(n, z)
+  if n == 1 then steps_key1()
+  elseif n == 3 then steps_key3(z)
+  end
+end
+
+view_key[views.patterns] = function(n, z)
+  if n == 1 then
+    data.ui_index = K1_is_hold() and -1 or 1
+  end
+  -- n == 2 and n == 3 are no-ops in patterns view.
+end
+
+view_key[views.sampling] = function(n, z)
+  if n == 1 then
+    data.ui_index = 1 -- K1_hold doesn't reach a special branch in sampling
+  elseif n == 3 then
+    sampling_actions[data.ui_index](z)
+    if z == 1 and ((data.ui_index == 1 and sampler.rec) or data.ui_index == 4) then
+      ui.waveform = {}
+    end
+  end
+end
 
 function init()
 
@@ -946,11 +1417,18 @@ function init()
     sampler.init()
     ui.init()
 
+    norns.encoders.set_sens(1, 3)
+    norns.encoders.set_sens(2, 4)
+    norns.encoders.set_sens(3, 3)
+    norns.encoders.set_accel(1, false)
+    norns.encoders.set_accel(2, false)
+    norns.encoders.set_accel(3, true)
+
     sequencer_metro = metro.init()
     sequencer_metro.time = 60 / (data[data.pattern].bpm * 2) / 16 --[[ppqn]] / 4
     sequencer_metro.event = function(stage) seqrun(stage) if stage % m_div(data.metaseq.div) == 0 then metaseq(stage) end end
 
-    redraw_metro = metro.init(function(stage) redraw(stage) g:redraw() blink = (blink + 1) % 17 end, 1/30)
+    redraw_metro = metro.init(function(stage) redraw(stage) ei:tick() blink = (blink + 1) % 17 end, 1/30)
     redraw_metro:start()
     midi_clock = beatclock:new()
     midi_clock.on_step = function() end
@@ -958,133 +1436,24 @@ function init()
     midi_clock.send = false
 end
 
--- main encoder handler
-function enc(n,d)
-  norns.encoders.set_sens(1,3)
-  norns.encoders.set_sens(2,4)
-  norns.encoders.set_sens(3,3)
-  norns.encoders.set_accel(1, false)
-  norns.encoders.set_accel(2, false)
-  norns.encoders.set_accel(3, true)
-
-  local tr = data.selected[1]
-  local s = data.selected[2] and data.selected[2] or tostring(tr)
+function enc(n, d)
   if browser.open then
     browser.enc(n, d)
-  elseif n == 1 then
-
-      local offset = data.selected[1] > 7 and 7 or 0
-      data.selected[1] = util.clamp(data.selected[1] + d, 1 + offset, 7 + offset)
-      tr_change(data.selected[1])
-
-  elseif n == 2 then
-
-    if not view.sampling then
-      if not K1_is_hold() then
-        data.ui_index = util.clamp(data.ui_index + d, not data.selected[2] and 1 or -3, (view.steps_midi or view.patterns) and 18 or 20)
-      else
-        data.ui_index = util.clamp(data.ui_index + d, view.patterns and -1 or -6, -1)
-      end
-    else
-      if not sampler.rec then
-        data.ui_index = util.clamp(data.ui_index + d, -1, 6)
-      end
-    end
-  elseif n == 3 then
-    if view.patterns then
-      if K1_is_hold() then
-        track_params[-1](tr, p, d)
-      else
-        params_fx[data.ui_index](d)
-      end
-    elseif not view.sampling then
-
-      local p = is_lock()
-      local t = type(p) == 'number' and get_step(p) or p
-
-      data[data.pattern][tr].params[t].lock = data.selected[2] and 1 or 0
-
-      redraw_params[1] = get_params(tr, is_lock())
-      redraw_params[2] = redraw_params[1]
-
-      if K1_is_hold() then
-        track_params[data.ui_index](tr, p, d)
-      else
-
-          local params_t = data.ui_index < 1 and trig_params or tr < 8 and step_params or tr > 7 and midi_step_params
-
-          if type(p) == 'string' then
-            params_t[data.ui_index](tr, p, d)
-          else
-            if data.ui_index > 0 then
-              for i = t, t + 15 do params_t[data.ui_index](tr, i, d) end
-            else
-              params_t[data.ui_index](tr, t, d)
-            end
-          end
-
-      if view.notes_input then set_locks(get_params(tr)) end
-      end
-    else
-      sampling_params[data.ui_index](d)
-    end
+    return
   end
+  local h = view_enc[ei.active]
+  if h then h(n, d) end
 end
 
--- main key handler
-function key(n,z)
+function key(n, z)
   K1_hold = (n == 1 and z == 1) and true or false
   K3_hold = (n == 1 and z == 1) and true or false
   if browser.open then
     browser.key(n, z)
-
-  elseif n == 1 then
-    if K1_is_hold() and not view.sampling and not view.patterns then
-      data.ui_index = -4
-    elseif K1_is_hold() and view.patterns then
-      data.ui_index = -1
-    else
-      data.ui_index = 1
-    end
-  elseif n == 2 and z == 1 then
-    if view.patterns then
-      set_view(view.notes_input and (data.selected[1] < 8 and 'steps_engine' or 'steps_midi'))
-    elseif browser.open then
-
-      browser.exit()
-    end
-  elseif n == 3 then
-    if view.sampling then
-        sampling_actions[data.ui_index](z)
-        if z == 1 and ((data.ui_index == 1 and sampler.rec) or data.ui_index == 4) then ui.waveform = {} end
-    elseif view.patterns then
-        --open_settings(2)
-        --open_settings(3.5)
-        --open_settings(5.5)
-      elseif not view.steps_midi then
-      if data.ui_index == 1 and z == 1  then
-          local sample_id = data[data.pattern][data.selected[1]].params[is_lock()].sample
-          browser.enter(_path.audio, timber.load_sample, sample_id)
-      elseif (data.ui_index == 3 or data.ui_index == 4) and z == 1 and sample_not_loaded(get_sample()) then
-          local sample_id = data[data.pattern][data.selected[1]].params[is_lock()].sample
-          browser.enter(_path.audio, timber.load_sample, sample_id)
-      elseif (data.ui_index == 17 or data.ui_index == 18) and z == 1 then
-          change_filter_type()
-      elseif lfo_1[data.ui_index] then
-          set_view('patterns')
-          data.ui_index = 15
-      elseif lfo_2[data.ui_index] then
-          set_view('patterns')
-          data.ui_index = 17
-      elseif data.ui_index == 19 then
-          set_view('patterns')
-          data.ui_index = 12
-      elseif data.ui_index == 20 then
-          set_view('patterns')
-          data.ui_index = 8
-      end
-    end
+    return
   end
+  local h = view_key[ei.active]
+  if h then h(n, z) end
 end
 
 -- screen redraw fn
@@ -1104,15 +1473,15 @@ function redraw(stage)
 
   screen.clear()
 
-  ui.head(redraw_params[1], data, view, K1_is_hold(), rules, PATTERN_REC, browser.preview)
+  ui.head(redraw_params[1], data, ei.active == views.sampling, K1_is_hold(), rules, PATTERN_REC, browser.preview)
 
-  if view.sampling then
+  if ei.active == views.sampling then
     local pos = sampler.get_pos()
     ui.sampling(sampler, data.ui_index, pos)
-  elseif view.patterns then
+  elseif ei.active == views.patterns then
     ui.patterns(data.pattern, data.metaseq, data.ui_index, stage)
   else
-    if data.selected[1] < 8 then
+    if is_engine(data.selected[1]) then
       local meta = timber.get_meta(redraw_params[1].sample)
       -- length hack
       local max_len = meta.num_frames
@@ -1133,205 +1502,4 @@ function redraw(stage)
 end
 
 
--- TODO main key handler
-function g.key(x, y, z)
-  screen.ping()
-  if view.notes_input and not ALT and not SHIFT then
-    local tr = data.selected[1]
-    local device = data[data.pattern][tr].params[tr].device
-    local note = linn.grid_key(x, y, z, device and midi_out_devices[device])
-    local pos = data[data.pattern].track.pos[tr]
-    if note then
-      if tr < 8 then
-        engine.noteOn(data.selected[1], music.note_num_to_freq(note), 1, data[data.pattern][data.selected[1]].params[tr].sample)
-      end
-      if sequencer_metro.is_running and PATTERN_REC then
-        place_note(tr, pos, note )
-      end
-    end
-  end
-  if y < 8 then
-    local held
-    local cond = have_substeps(y, x)
-    if z==1 and hold[y] then
-      holdmax[y] = 0
-    end
-    hold[y] = hold[y] + (z * 2 - 1)
-    hold['p'] = hold['p'] + (z * 2 - 1)
-    if hold[y] > holdmax[y] then
-      holdmax[y] = hold[y]
-    end
-    if not view.patterns then
-      local y = data.selected[1] > 7 and y + 7 or y
-      if SHIFT then
-        if z == 1 then
-          if x == 16 then
-              mute_track(y)
-          else
-            if x < 8 then
-              set_div(y, x)
-            end
-          end
-        end
-      elseif ALT then
-          if hold[y] == 1 then
-            first[y] = x
-          elseif hold[y] == 2 then
-            second[y] = x
-            set_loop(y, first[y], second[y])
-          end
-      elseif MOD then
-        if not copy[1] then
-          copy = { y, x }
-        else
-          copy_step(copy, {y, x})
-        end
-      elseif not view.notes_input then
-        cond = have_substeps(y, x)
-        data.selected = { y, z == 1 and x or false }
-        if not data.selected[2] then tr_change(y) end
-        if not data.selected[2] and data.ui_index < 1 then data.ui_index = 1 end
-       if z == 1 then
-          down_time = util.time()
-        else
-          hold_time = util.time() - down_time
-          held = hold_time > 0.2 and true or false
-          x = get_step(x)
-          if not cond then
-            data[data.pattern][y][x] = 1
-          elseif cond and not held then
-            clear_substeps(y, x)
-            data.selected = { y, false }
-            tr_change(y)
-          end
-        end
-      end
-    elseif view.patterns then
-      local id = to_id(x,y)
-      if y < 5 and z == 1 then
-        if SHIFT then
-          if data.pattern ~= id then
-            data[id] = nil
-          end
-        elseif MOD then
-            if not ptn_copy then
-              ptn_copy = id
-            else
-              copy_pattern(ptn_copy, id)
-            end
-        else
-          if hold['p'] == 1 then
-            first['p'] = id
-            if ptn_change_pending then
-                change_pattern(ptn_change_pending)
-                ptn_change_pending = false
-            else
-                ptn_change_pending = id
-            end
-            data.metaseq.from = false
-            data.metaseq.to = false
-            ptn_copy = false
-          elseif hold['p'] == 2 then
-            second['p'] = id
-            data.metaseq.from = first['p']
-            data.metaseq.to = second['p']
-          end
-        end
-      elseif y == 6 then
-        data.metaseq.div = x
-      end
-    end
-  else
-    if controls[x] then
-      controls[x](z)
-    end
-    if z == 1 then
-      if view.sampling or view.patterns then
-        ui.start_polls()
-      else
-        ui.stop_polls()
-      end
-    end
-  end
-end
 
--- TODO main redraw fn
-function g.redraw()
-  local glow = util.clamp(blink, 5, 15)
-  g:all(0)
-  if view.notes_input and (not ALT and not SHIFT) then
-      linn.grid_redraw(g)
-  end
-  for y = 1, 7 do
-    for x = 1, 16 do
-      if not view.patterns then
-        local yy = data.selected[1] > 7 and y + 7 or y
-        if SHIFT then
-            if y < 8 and x < 8 then
-              g:led(x, y, x == 5 and 6 or 3)
-            end
-            g:led(data[data.pattern].track.div[yy], y, 15)
-            g:led(16, y, data[data.pattern].track.mute[yy] and 15 or 6 )
-        elseif ALT then
-            local t_start = get_tr_start(yy)
-            local t_len  = get_tr_len(yy)
-            if x >= t_start and x <= t_len then
-              g:led(x, y, 3)
-            end
-        elseif not SHIFT and not view.notes_input then
-          -- main
-          local substeps = have_substeps(yy, x)
-          if substeps then
-              local t_start = get_tr_start(yy)
-              local t_len  = get_tr_len(yy)
-              local level = data.selected[1] == yy and data.selected[2] == x and 15
-              or (x < t_start or x > t_len) and 5
-              or data[data.pattern].track.mute[yy] and 5
-              or 10
-              g:led(x, y, level )
-          end
-        end
-      else
-        -- patterns
-        if y < 5 then
-            local id = to_id(x,y)
-            --print(id)
-            local level =
-            id == ptn_change_pending  and sequencer_metro.is_running and  util.clamp(blink, 5, 14)
-            or (data.metaseq.from and data.metaseq.to) and id == data.pattern and  util.clamp(blink, 5, 14)
-            or (id >= (data.metaseq.from and data.metaseq.from or data.pattern) and id <= (data.metaseq.to and data.metaseq.to or data.pattern)) and 9
-            or data.pattern == id and 15
-            or pattern_exists(x, y) and 6
-            or 2
-            g:led(x, y, level)
-        elseif y == 6 then
-          g:led(x, y, x == data.metaseq.div and 15 or 2)
-        end
-      end
-    end
-    -- playhead
-    if (view.notes_input and  ALT ) or (not view.patterns and not view.notes_input) and sequencer_metro.is_running and not SHIFT then
-      local yy = view.steps_midi and y + 7 or y
-      local pos = math.ceil(data[data.pattern].track.pos[yy] / 16)
-      local level = have_substeps(yy, pos) and 15 or 6
-      if not data[data.pattern].track.mute[yy] then g:led(pos, y, level) end
-    end
-  end
-
-  g:led(1, 8,  sequencer_metro.is_running and 15 or 6 )
-
-  g:led(3, 8,  (view.notes_input and PATTERN_REC) and glow or view.notes_input and 6 or 0)
-  g:led(5, 8,  (view.notes_input and data.selected[1] < 8 or view.steps_engine) and 15  or  6)
-  g:led(6, 8,  (view.notes_input and data.selected[1] > 7 or view.steps_midi) and 15  or  6)
-
-  g:led(8, 8,  view.notes_input and 15 or  6)
-  g:led(10, 8, view.sampling and 15 or 6)
-  g:led(11, 8, view.patterns and 15 or 6)
-
-  g:led(13, 8, MOD and glow or 6 )
-  g:led(15, 8, ALT and glow  or 6 )
-  g:led(16, 8, SHIFT and glow  or 6 )
-
-  g:refresh()
-
-end

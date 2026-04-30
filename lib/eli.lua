@@ -10,7 +10,6 @@
 -- local print = print
 
 local P = {}
-eli = P
 -- XXX deprecated, what's the best way to control module privacy across versions?
 -- setfenv(1, P)
 
@@ -40,6 +39,9 @@ function Instrument:connect_grid(g)
 
   self.grid = g
   self.grid.key = function (x, y, z)
+    if self.before_key ~= nil then
+      self.before_key(x, y, z)
+    end
     if self.active ~= nil then
       self.active:key(x, y, z)
     end
@@ -48,7 +50,6 @@ end
 
 
 function Instrument:new_view(name, width, height)
-  -- XXX why is self.grid not nil here
   width = width or (self.grid and self.grid.device and self.grid.device.cols) or 8
   height = height or (self.grid and self.grid.device and self.grid.device.rows) or 8
   local v = P.View.new(width, height)
@@ -161,7 +162,7 @@ function View:key(x, y, z)
 end
 
 function View:refresh(grid)
-  local needs_refresh = false -- XXX TODO back to false
+  local needs_refresh = false
   for _, box in ipairs(self.boxes) do
     if self.dirty or box.dirty then
       needs_refresh = true
@@ -221,7 +222,7 @@ end
 function View:new_box(width, height, keydown_cb, keyup_cb, tick_cb)
   -- find first open space
   local x, y = find_first_space(self.lookup, width, height)
-  if x == nil and y ==nil then
+  if x == nil and y == nil then
     -- error("no space for box")
     -- XXX swallowing the error rather than blowing up maybe makes
     -- things a little more flexible for writing for grids of
@@ -244,7 +245,7 @@ function View:add_box(box, x, y)
   if x ~= nil and x > 0 then
     box.xoffset = x - 1
   end
-  if y ~= nil and x > 0 then
+  if y ~= nil and y > 0 then
     box.yoffset = y - 1
   end
 
@@ -265,17 +266,22 @@ function Box.new(width, height, keydown_cb, keyup_cb, tick_cb)
   w.width = (width or 4)
   w.height = (height or 4)
 
+  -- floor brightness
+  -- TODO configurable
+  w.floor = 1
+
   w.leds = {}
   for i=1,w.width*w.height do
-    table.insert(w.leds, 0)
+    table.insert(w.leds, w.floor)
   end
 
   -- render state
-  w.dirty = false
+  w.dirty = true
 
   -- will mutate when added to a space
   w.xoffset = 0
   w.yoffset = 0
+
 
   -- event handlers
   w.tick = function (box) end
@@ -296,13 +302,13 @@ end
 function Box:led(seq, v)
   assert(seq <= self.width*self.height, "invalid seq: " .. seq)
   assert(v >= 0 and v <= 15, "led brightness 0 to 15")
-  self.leds[seq] = v
+  self.leds[seq] = math.max(v, self.floor)
   self.dirty = true
 end
 
 function Box:all(v)
   for i=1,self.width*self.height do
-    self.leds[i] = v
+    self.leds[i] = math.max(v, self.floor)
   end
   self.dirty = true
 end
@@ -319,4 +325,5 @@ P.Box = Box
 P.EMPTY = EMPTY
 P.find_first_space = find_first_space
 
-return eli
+eli = P
+return P

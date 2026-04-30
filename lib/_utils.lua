@@ -2,14 +2,14 @@ local utils = {}
 
 
 local function default_engine_params(i)
-    local default = {          
-      lock = 0, offset = 0, rule = 0, retrig = 0, div = 5, 
+    local default = {
+      lock = 0, offset = 0, rule = 0, retrig = 0, div = 5,
       ---
-      sample = i, note = 60, play_mode = 3, 
+      sample = i, note = 60, play_mode = 3,
       quality = 5, amp = 0, pan = 0, detune_cents = 0,
       start_frame = 0, loop_start_frame = 0, end_frame = 2000000000, loop_end_frame = 2000000000,
       ---
-      amp_env_attack = 0, amp_env_decay = 1, 
+      amp_env_attack = 0, amp_env_decay = 1,
       amp_env_sustain = 1, amp_env_release = 0,
       --
       filter_type = 1, filter_freq = 20000, filter_resonance = 0,
@@ -21,9 +21,9 @@ local function default_engine_params(i)
     }
     return default
   end
-  
+
   local function default_midi_params(i)
-    local default = {          
+    local default = {
       lock = 0, offset = 0, rule = 0, retrig = 0, div = 5,
       ---
       device = 1,  note = 74 - i , length = 1,
@@ -35,23 +35,23 @@ local function default_engine_params(i)
     }
     return default
   end
-  
+
 function utils.make_default_pattern()
-  
-    local default = { 
-        bpm = 120, 
+
+    local default = {
+        bpm = 120,
         sync_div = 0,
-        track = { 
-            mute = {}, 
+        track = {
+            mute = {},
             pos = {},
-            start = {}, 
+            start = {},
             len = {},
-            div = {}, 
-            cycle = {}, 
+            div = {},
+            cycle = {},
         },
     }
-  
-    for i = 1, 14 do   
+
+    for i = 1, 14 do
         default.track.mute[i] = false
         default.track.pos[i] = 0
         default.track.start[i] = 1
@@ -59,18 +59,18 @@ function utils.make_default_pattern()
         default.track.div[i] = 5
         default.track.cycle[i] = 1
     end
-  
-  
+
+
     for l = 1, 7 do
         local m = l + 7
-        
+
         default[l] = {}
         default[m] = {}
         default[l].params = {}
         default[m].params = {}
         default[l].params[tostring(l)] = default_engine_params(l)
         default[m].params[tostring(m)] = default_midi_params(m)
-  
+
         for i=0,256 do
             default[l][i] = 0
             default[m][i] = 0
@@ -78,12 +78,12 @@ function utils.make_default_pattern()
             default[m].params[i] = {}
             setmetatable(default[l].params[i], {__index =  default[l].params[tostring(l)]})
             setmetatable(default[m].params[i], {__index =  default[m].params[tostring(m)]})
-  
+
         end
     end
-  
+
     return default
-  
+
   end
 
 return utils

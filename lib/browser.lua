@@ -16,9 +16,9 @@ function fs.enter(folder, callback, id)
   fs.callback = callback
   fs.done = false
   fs.path = nil
-  fs.sample_id = id 
+  fs.sample_id = id
 
-  
+
   if fs.folder:sub(-1,-1) ~= "/" then
     fs.folder = fs.folder .. "/"
   end
@@ -118,7 +118,7 @@ fs.key = function(n,z)
         fs.done = true
       end
     end
-  
+
   elseif z == 0 and fs.done == true then
     fs.exit()
   end
@@ -132,8 +132,8 @@ fs.update_offset = function(val, y, length, bounds, offset)
     end
     return val
   end
-  
-  
+
+
 
 fs.enc = function(n,d)
   if n==2 then
@@ -144,7 +144,7 @@ end
 
 
 fs.redraw = function()
-    
+
     screen.level(0)
     screen.rect(43, 8, 83, 53)
     screen.fill()
@@ -158,7 +158,7 @@ fs.redraw = function()
         screen.move(45, 15)
         screen.text("(no files)")
     else
-        for i= 1, fs.bounds_y do 
+        for i= 1, fs.bounds_y do
             local list_index = i + (fs.s_offset)
 
             screen.level(4)
@@ -167,7 +167,7 @@ fs.redraw = function()
             screen.text(fs.display_list[list_index] or '')
             screen.stroke()
         end
-        if #fs.list > 6 then 
+        if #fs.list > 6 then
             screen.level(1)
             screen.rect(123, 10 + (fs.pos), 1, 50 - #fs.list)
             screen.fill()

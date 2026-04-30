@@ -1,4 +1,4 @@
---  
+--
 --   ////\\\\
 --   ////\\\\  LINN
 --   ////\\\\  BY NEAUOIRE
@@ -90,13 +90,13 @@ function linn.grid_key(x, y, z, m)--, tr, sample)
 end
 
 function linn.grid_redraw(g)
-  for i=1, 111 do 
-    pos = linn.pos_at(i)  
+  for i=1, 111 do
+    pos = linn.pos_at(i)
     note = linn.note_at(i)
     g:led(pos.x,pos.y, note.l)
   end
   g:led(focus.x,focus.y, 10)
-  g:led(16,1,3) 
+  g:led(16,1,3)
 end
 
 
