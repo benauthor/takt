@@ -4,6 +4,7 @@
 -- parameter locking sequencer
 --
 
+local eli = include('lib/eli')
 local sampler = include('lib/sampler')
 local browser = include('lib/browser')
 local timber = include('lib/timber_takt')
@@ -47,10 +48,19 @@ local controlkeydownfns, controlkeyupfns
 
 local controls = eli.Box.new(16, 1)
 controls.keydown = function(box, seq)
-  controlkeydownfns[seq] and controlkeydownfns[seq]() or print("unmapped control keydown")
+  if controlkeydownfns[seq] then
+    controlkeydownfns[seq]() 
+  else 
+      print("unmapped control keydown")
+  end
 end
 controls.keyup = function(box, seq)
-  controlkeyupfns[seq] and controlkeyupfns[seq]() or print("unmapped control keyup")
+  if controlkeyupfns[seq] then
+    controlkeyupfns[seq]()
+  else
+    print("unmapped control keyup")
+  end
+  
 end
 
 for _, v in pairs(views) do
@@ -974,7 +984,7 @@ do
     tr_change(tr)
     if data.ui_index < 1 then data.ui_index = 1 end
 
-    local held = (util.time() - press_down_time) > 0.2
+    local held = (util.time() - press_down_time) > 0.3
     local cond = have_substeps(tr, x)
     local sx = get_step(x)
     if not cond then
