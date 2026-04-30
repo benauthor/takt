@@ -610,6 +610,22 @@ end
 
 ---
 
+-- Helpers for the param-edit tables below. Most entries just want to nudge a
+-- single field on the active step's params and clamp it; a handful (volume,
+-- sends, filter freq) read/write through a controlspec-shaped `map` so the
+-- delta can be applied in normalized 0..1 space rather than the raw value's
+-- own scale.
+local function bump(tr, s, name, d, min, max, scale)
+  local p = data[data.pattern][tr].params[s]
+  p[name] = util.clamp(p[name] + d * (scale or 1), min, max)
+end
+
+local function bump_mapped(tr, s, name, map, d, scale, min, max)
+  local p = data[data.pattern][tr].params[s]
+  local v = util.clamp(map:unmap(p[name]) + d * (scale or 1), min or 0, max or 1)
+  p[name] = map:map(v)
+end
+
 local track_params = {
   [-6] = function(tr, s, d) -- ptn
       local pt = (util.clamp(data.pattern + d, 1, 64))
@@ -644,145 +660,65 @@ end,
 
 
 local midi_step_params = {
-
-  [1] = function(tr, s, d) -- note
-      data[data.pattern][tr].params[s].note = util.clamp(data[data.pattern][tr].params[s].note + d, 25, 127)
-  end,
-  [2] = function(tr, s, d) -- velocity
-      data[data.pattern][tr].params[s].velocity = util.clamp(data[data.pattern][tr].params[s].velocity + d, 0, 127)
-  end,
-  [3] = function(tr, s, d) -- length
-      data[data.pattern][tr].params[s].length = util.clamp(data[data.pattern][tr].params[s].length + d, 1, 256)
-  end,
-  [4] = function(tr, s, d) -- channel
-      data[data.pattern][tr].params[s].channel = util.clamp(data[data.pattern][tr].params[s].channel + d, 1, 16)
-  end,
-  [5] = function(tr, s, d) -- device
-      data[data.pattern][tr].params[s].device = util.clamp(data[data.pattern][tr].params[s].device + d, 1, 4)
-  end,
-  [6] = function(tr, s, d) -- pgm
-      data[data.pattern][tr].params[s].program_change = util.clamp(data[data.pattern][tr].params[s].program_change + d, -1, 127)
-  end,
-
-  [7] = function(tr, s, d) --
-      data[data.pattern][tr].params[s].cc_1_val = util.clamp(data[data.pattern][tr].params[s].cc_1_val + d, -1, 127)
-  end,
-  [8] = function(tr, s, d) --
-      data[data.pattern][tr].params[s].cc_2_val = util.clamp(data[data.pattern][tr].params[s].cc_2_val + d, -1, 127)
-  end,
-  [9] = function(tr, s, d) --
-      data[data.pattern][tr].params[s].cc_3_val = util.clamp(data[data.pattern][tr].params[s].cc_3_val + d, -1, 127)
-  end,
-  [10] = function(tr, s, d) --
-      data[data.pattern][tr].params[s].cc_4_val = util.clamp(data[data.pattern][tr].params[s].cc_4_val + d, -1, 127)
-  end,
-  [11] = function(tr, s, d) --
-      data[data.pattern][tr].params[s].cc_5_val = util.clamp(data[data.pattern][tr].params[s].cc_5_val + d, -1, 127)
-  end,
-  [12] = function(tr, s, d) --
-      data[data.pattern][tr].params[s].cc_6_val = util.clamp(data[data.pattern][tr].params[s].cc_6_val + d, -1, 127)
-  end,
-
-  [13] = function(tr, s, d) --
-      data[data.pattern][tr].params[s].cc_1 = util.clamp(data[data.pattern][tr].params[s].cc_1 + d, 1, 127)
-  end,
-  [14] = function(tr, s, d) --
-      data[data.pattern][tr].params[s].cc_2 = util.clamp(data[data.pattern][tr].params[s].cc_2 + d, 1, 127)
-  end,
-  [15] = function(tr, s, d) --
-      data[data.pattern][tr].params[s].cc_3 = util.clamp(data[data.pattern][tr].params[s].cc_3 + d, 1, 127)
-  end,
-  [16] = function(tr, s, d) --
-      data[data.pattern][tr].params[s].cc_4 = util.clamp(data[data.pattern][tr].params[s].cc_4 + d, 1, 127)
-  end,
-  [17] = function(tr, s, d) --
-      data[data.pattern][tr].params[s].cc_5 = util.clamp(data[data.pattern][tr].params[s].cc_5 + d, 1, 127)
-  end,
-  [18] = function(tr, s, d) --
-      data[data.pattern][tr].params[s].cc_6 = util.clamp(data[data.pattern][tr].params[s].cc_6 + d, 1, 127)
-  end,
-
+  [1]  = function(tr, s, d) bump(tr, s, 'note',           d,  25, 127) end,
+  [2]  = function(tr, s, d) bump(tr, s, 'velocity',       d,   0, 127) end,
+  [3]  = function(tr, s, d) bump(tr, s, 'length',         d,   1, 256) end,
+  [4]  = function(tr, s, d) bump(tr, s, 'channel',        d,   1,  16) end,
+  [5]  = function(tr, s, d) bump(tr, s, 'device',         d,   1,   4) end,
+  [6]  = function(tr, s, d) bump(tr, s, 'program_change', d,  -1, 127) end,
+  [7]  = function(tr, s, d) bump(tr, s, 'cc_1_val',       d,  -1, 127) end,
+  [8]  = function(tr, s, d) bump(tr, s, 'cc_2_val',       d,  -1, 127) end,
+  [9]  = function(tr, s, d) bump(tr, s, 'cc_3_val',       d,  -1, 127) end,
+  [10] = function(tr, s, d) bump(tr, s, 'cc_4_val',       d,  -1, 127) end,
+  [11] = function(tr, s, d) bump(tr, s, 'cc_5_val',       d,  -1, 127) end,
+  [12] = function(tr, s, d) bump(tr, s, 'cc_6_val',       d,  -1, 127) end,
+  [13] = function(tr, s, d) bump(tr, s, 'cc_1',           d,   1, 127) end,
+  [14] = function(tr, s, d) bump(tr, s, 'cc_2',           d,   1, 127) end,
+  [15] = function(tr, s, d) bump(tr, s, 'cc_3',           d,   1, 127) end,
+  [16] = function(tr, s, d) bump(tr, s, 'cc_4',           d,   1, 127) end,
+  [17] = function(tr, s, d) bump(tr, s, 'cc_5',           d,   1, 127) end,
+  [18] = function(tr, s, d) bump(tr, s, 'cc_6',           d,   1, 127) end,
 }
 
 local step_params = {
-  [1] = function(tr, s, d) -- sample
-      data[data.pattern][tr].params[s].sample = util.clamp(data[data.pattern][tr].params[s].sample + d, 1, 99)
+  [1]  = function(tr, s, d) bump(tr, s, 'sample', d, 1, 99) end,
+  [2]  = function(tr, s, d)
+    if K3_is_hold() then
+      bump(tr, s, 'detune_cents', d, -100, 100)
+    else
+      bump(tr, s, 'note', d, 25, 127)
+    end
   end,
-  [2] = function(tr, s, d) -- note
-      if K3_is_hold() then
-        data[data.pattern][tr].params[s].detune_cents = util.clamp(data[data.pattern][tr].params[s].detune_cents + d, -100, 100)
-      else
-        data[data.pattern][tr].params[s].note = util.clamp(data[data.pattern][tr].params[s].note + d, 25, 127)
-      end
+  [3]  = function(tr, s, d) -- start: scrub through the sample's start_frame controlspec in 0..1 space
+    local p = data[data.pattern][tr].params[s]
+    local pspec = params:lookup_param("start_frame_" .. p.sample).controlspec
+    local v = util.clamp(pspec:unmap(p.start_frame) + (d / set_enc_res(200, 1000)), 0, 1)
+    p.start_frame = pspec:map(v)
+    p.loop_start_frame = pspec:map(v)
   end,
-  [3] = function(tr, s, d) -- start
-      local sample = data[data.pattern][tr].params[s].sample
-      local pspec = params:lookup_param("start_frame_" .. sample).controlspec
-      local start = util.clamp(pspec:unmap( data[data.pattern][tr].params[s].start_frame ) + (d / set_enc_res(200, 1000) ), 0, 1)
-      data[data.pattern][tr].params[s].start_frame = pspec:map(start)
-      data[data.pattern][tr].params[s].loop_start_frame = pspec:map(start)
+  [4]  = function(tr, s, d) -- len: same idea against end_frame
+    local p = data[data.pattern][tr].params[s]
+    local pspec = params:lookup_param("end_frame_" .. p.sample).controlspec
+    local v = util.clamp(pspec:unmap(p.end_frame) + (d / set_enc_res(200, 1000)), 0, 1)
+    p.end_frame = pspec:map(v)
+    p.loop_end_frame = pspec:map(v)
   end,
-  [4] = function(tr, s, d) -- len
-      local sample = data[data.pattern][tr].params[s].sample
-      local pspec = params:lookup_param("end_frame_" .. sample).controlspec
-      local length = util.clamp(pspec:unmap( data[data.pattern][tr].params[s].end_frame ) + (d / set_enc_res(200, 1000)), 0, 1)
-      data[data.pattern][tr].params[s].end_frame = pspec:map(length)
-      data[data.pattern][tr].params[s].loop_end_frame = pspec:map(length)
-   end,
-  [5] = function(tr, s, d) -- freq mod lfo 1 freq_lfo1
-        --[[          local pspec = params:lookup_param("lfo_1_freq").controlspec
-                  local freq = util.clamp(pspec:unmap( params:get('lfo_1_freq') ) + (d / 10), 0, 1)
-                  params:set('lfo_1_freq', pspec:map(freq))
-        ]]
-      data[data.pattern][tr].params[s].freq_mod_lfo_1 = util.clamp(data[data.pattern][tr].params[s].freq_mod_lfo_1 + d / 100, 0, 1)
-  end,
-  [6] = function(tr, s, d) -- freq mod lfo 2
-        data[data.pattern][tr].params[s].freq_mod_lfo_2 = util.clamp(data[data.pattern][tr].params[s].freq_mod_lfo_2 + d / 100, 0, 1)
-  end,
-  [7] = function(tr, s, d) -- volume
-        data[data.pattern][tr].params[s].amp = amp_map:map(util.clamp(amp_map:unmap(data[data.pattern][tr].params[s].amp) + d / 200, 0,1 ))
-  end,
-  [8] = function(tr, s, d) -- pan
-        data[data.pattern][tr].params[s].pan = util.clamp(data[data.pattern][tr].params[s].pan + d / 20 , -1, 1)
-  end,
-  [9] = function(tr, s, d) -- atk
-    data[data.pattern][tr].params[s].amp_env_attack = util.clamp(data[data.pattern][tr].params[s].amp_env_attack + d / 50, 0, 5)
-  end,
-  [10] = function(tr, s, d) -- dec
-      data[data.pattern][tr].params[s].amp_env_decay = util.clamp(data[data.pattern][tr].params[s].amp_env_decay + d / 50, 0.01, 5)
-  end,
-  [11] = function(tr, s, d) -- sus
-      data[data.pattern][tr].params[s].amp_env_sustain = util.clamp(data[data.pattern][tr].params[s].amp_env_sustain + d / 50, 0, 1)
-  end,
-  [12] = function(tr, s, d) -- rel
-      data[data.pattern][tr].params[s].amp_env_release = util.clamp(data[data.pattern][tr].params[s].amp_env_release + d / 10, 0, 10)
-  end,
-  [13] = function(tr, s, d)
-        data[data.pattern][tr].params[s].amp_mod_lfo_1 = util.clamp(data[data.pattern][tr].params[s].amp_mod_lfo_1 + d / 100, 0, 1)
-  end,
-  [14] = function(tr, s, d)
-        data[data.pattern][tr].params[s].filter_freq_mod_lfo_2 = util.clamp(data[data.pattern][tr].params[s].filter_freq_mod_lfo_2 + d / 100, 0, 1)
-  end,
-  [15] = function(tr, s, d)
-      data[data.pattern][tr].params[s].quality = util.clamp(data[data.pattern][tr].params[s].quality + d, 1, 5)
-  end,
-  [16] = function(tr, s, d)
-      data[data.pattern][tr].params[s].play_mode = util.clamp(data[data.pattern][tr].params[s].play_mode + d, 1, 4)
-  end,
-  [17] = function(tr, s, d)
-      local fr = freq_map:unmap(data[data.pattern][tr].params[s].filter_freq)
-      fr = util.clamp(fr + d / 200,0.1,1)
-      data[data.pattern][tr].params[s].filter_freq = freq_map:map(fr)
-  end,
-  [18] = function(tr, s, d)
-      data[data.pattern][tr].params[s].filter_resonance = util.clamp(data[data.pattern][tr].params[s].filter_resonance + d / 20, 0, 1)
-  end,
-  [19] = function(tr, s, d)
-        data[data.pattern][tr].params[s].delay_send = send_map:map(util.clamp(send_map:unmap(data[data.pattern][tr].params[s].delay_send) + d / 200, 0,1 ))
-  end,
-  [20] = function(tr, s, d)
-        data[data.pattern][tr].params[s].reverb_send = send_map:map(util.clamp(send_map:unmap(data[data.pattern][tr].params[s].reverb_send) + d / 200, 0,1 ))  end,
-
+  [5]  = function(tr, s, d) bump(tr, s, 'freq_mod_lfo_1',        d, 0, 1, 1/100) end,
+  [6]  = function(tr, s, d) bump(tr, s, 'freq_mod_lfo_2',        d, 0, 1, 1/100) end,
+  [7]  = function(tr, s, d) bump_mapped(tr, s, 'amp',         amp_map,  d, 1/200) end,
+  [8]  = function(tr, s, d) bump(tr, s, 'pan',                   d, -1, 1, 1/20) end,
+  [9]  = function(tr, s, d) bump(tr, s, 'amp_env_attack',        d, 0,    5, 1/50) end,
+  [10] = function(tr, s, d) bump(tr, s, 'amp_env_decay',         d, 0.01, 5, 1/50) end,
+  [11] = function(tr, s, d) bump(tr, s, 'amp_env_sustain',       d, 0,    1, 1/50) end,
+  [12] = function(tr, s, d) bump(tr, s, 'amp_env_release',       d, 0,   10, 1/10) end,
+  [13] = function(tr, s, d) bump(tr, s, 'amp_mod_lfo_1',         d, 0, 1, 1/100) end,
+  [14] = function(tr, s, d) bump(tr, s, 'filter_freq_mod_lfo_2', d, 0, 1, 1/100) end,
+  [15] = function(tr, s, d) bump(tr, s, 'quality',               d, 1, 5) end,
+  [16] = function(tr, s, d) bump(tr, s, 'play_mode',             d, 1, 4) end,
+  [17] = function(tr, s, d) bump_mapped(tr, s, 'filter_freq', freq_map, d, 1/200, 0.1, 1) end,
+  [18] = function(tr, s, d) bump(tr, s, 'filter_resonance',      d, 0, 1, 1/20) end,
+  [19] = function(tr, s, d) bump_mapped(tr, s, 'delay_send',  send_map, d, 1/200) end,
+  [20] = function(tr, s, d) bump_mapped(tr, s, 'reverb_send', send_map, d, 1/200) end,
 }
 
 local sampling_params = {
@@ -1203,7 +1139,15 @@ local function steps_enc3(d)
   local p = is_lock()
   local t = type(p) == 'number' and get_step(p) or p
   data[data.pattern][tr].params[t].lock = data.selected.step and 1 or 0
-  redraw_params[1] = get_params(tr, t, true)
+  if type(t) == 'number' then
+    -- step held: fetch the per-step entry and snapshot the track default onto it
+    redraw_params[1] = get_params(tr, t, true)
+  else
+    -- no step held: just the track default — `t` is its key, but passing it
+    -- through `get_params(tr, t, true)` would write a self-referential
+    -- `.default` onto the track default itself.
+    redraw_params[1] = get_params(tr)
+  end
   redraw_params[2] = redraw_params[1]
   if K1_is_hold() then
     track_params[data.ui_index](tr, p, d)
@@ -1269,12 +1213,10 @@ view_enc[views.midi] = function(n, d)
   end
 end
 
-view_enc[views.notes] = function(n, d)
-  if n == 1 then track_select_enc(d)
-  elseif n == 2 then steps_enc2(d, 20)
-  elseif n == 3 then steps_enc3(d)
-  end
-end
+-- notes view shares the steps view's enc handler (same upper bound, same
+-- step_params dispatch). The `set_locks(...)` call inside `steps_enc3` is
+-- gated on `ei.active == views.notes` so behavior diverges only when relevant.
+view_enc[views.notes] = view_enc[views.steps]
 
 view_enc[views.patterns] = function(n, d)
   if n == 1 then
@@ -1318,11 +1260,7 @@ view_key[views.midi] = function(n, z)
   -- filter type, lfo/send jumps) — those only apply to engine tracks.
 end
 
-view_key[views.notes] = function(n, z)
-  if n == 1 then steps_key1()
-  elseif n == 3 then steps_key3(z)
-  end
-end
+view_key[views.notes] = view_key[views.steps]
 
 view_key[views.patterns] = function(n, z)
   if n == 1 then
