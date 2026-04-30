@@ -229,13 +229,7 @@ local function load_project(pth)
       -- so iterate via pairs and skip the non-numeric keys like `pattern`).
       for t in pairs(data) do
         if type(t) == "number" then
-          for l = 1, 7 do
-            for k = 1, 256 do
-              data[t][l].params[k] = saved[2][t][l].params[k]
-              setmetatable(data[t][l].params[k], {__index = data[t][l].params[tostring(l)]})
-            end
-          end
-          for l = 8, 14 do
+          for l = 1, 14 do
             for k = 1, 256 do
               data[t][l].params[k] = saved[2][t][l].params[k]
               setmetatable(data[t][l].params[k], {__index = data[t][l].params[tostring(l)]})
@@ -1209,7 +1203,7 @@ local function steps_enc3(d)
   local p = is_lock()
   local t = type(p) == 'number' and get_step(p) or p
   data[data.pattern][tr].params[t].lock = data.selected.step and 1 or 0
-  redraw_params[1] = get_params(tr, is_lock())
+  redraw_params[1] = get_params(tr, t, true)
   redraw_params[2] = redraw_params[1]
   if K1_is_hold() then
     track_params[data.ui_index](tr, p, d)
