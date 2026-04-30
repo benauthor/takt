@@ -109,6 +109,7 @@ local lfo_1, lfo_2 = {[5] = true, [13] = true,  }, {[6] = true, [14] = true,  }
 -- `set_view` saves the current ui_index here, resets to 1, and restores on
 -- the way back to a step-grid view.
 local last_index = 1
+local last_engine_track, last_midi_track = 1, 8
 
 
 local param_ids = {
@@ -276,6 +277,9 @@ end
 
 local function set_view(x)
   if sampler.rec then return end
+  if ei.active == views.notes and views[x] ~= views.notes then
+    PATTERN_REC = false
+  end
   ei:switch_to(x)
   if ei.active == views.sampling or ei.active == views.patterns then
     last_index = data.ui_index
@@ -383,6 +387,8 @@ end
 
 local function tr_change(tr)
   data.selected.track = tr
+  if is_engine(tr) then last_engine_track = tr end
+  if is_midi(tr) then last_midi_track = tr end
   redraw_params[1] = get_params(tr)
   redraw_params[2] = redraw_params[1]
 end
@@ -787,13 +793,11 @@ controlkeydownfns = {
   end,
   [5] = function() -- steps view
     set_view('steps')
-    PATTERN_REC = false
-    tr_change(1)
+    tr_change(last_engine_track)
   end,
   [6] = function() -- steps midi view
     set_view('midi')
-    PATTERN_REC = false
-    tr_change(8)
+    tr_change(last_midi_track)
   end,
   [8] = function()
     set_view('notes')
