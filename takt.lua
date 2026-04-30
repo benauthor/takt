@@ -19,9 +19,9 @@ local midi_clock
 local midi_out_devices = {}
 local REC_CC = 38
 --
-local hold_time, down_time, blink = 0, 0, 1
+local blink = 1
 local ALT, SHIFT, MOD, PATTERN_REC, K1_hold, K3_hold, ptn_copy, ptn_change_pending = false, false, false, false, false, false, false, false
-local redraw_params, hold, holdmax, first, second = {}, {}, {}, {}, {}
+local redraw_params = {}
 local copy = { false, false }
 local freq_map = controlspec.WIDEFREQ
 local amp_map = controlspec.DB
@@ -66,11 +66,11 @@ end
 -- params, with the track-default params keyed by the *string* `tostring(tr)`)
 -- and on `data[data.pattern].track.{div,mute,pos,start,len,cycle}[tr]`.
 -- The grid is only 7 rows tall, so the steps and midi views show one range at
--- a time; `data.selected[1]` (also a `tr` value) decides which.
+-- a time; `data.selected.track` (also a `tr` value) decides which.
 local function is_engine(tr) return tr < 8 end
 local function is_midi(tr)   return tr > 7 end
 
-local data = { pattern = 1, ui_index = 1, selected = { 1, false },  metaseq = { from = 1, to = 1, div = 1}, [1] = takt_utils.make_default_pattern() }
+local data = { pattern = 1, ui_index = 1, selected = { track = 1, step = false }, metaseq = { from = 1, to = 1, div = 1}, [1] = takt_utils.make_default_pattern() }
 local choke = { 1, 2, 3, 4, 5, 6, 7, {},{},{},{},{},{},{}, ['8rt'] = {},['9rt'] = {},['10rt'] = {},['11rt'] = {}, ['12rt'] = {}, ['13rt'] = {},['14rt'] = {} }
 local dividers  = { [1] = 16, [2] = 8, [3] = 4, [4] = 3, [5] = 2, [6] = 1.5, [7] = 1,}
 local midi_dividers  = { [1] = 16, [2] = 8, [3] = 4, [4] = 3, [5] = 1, [6] = 0.666, [7] = 0.545,}
@@ -159,14 +159,6 @@ local function pattern_exists(x, y)
   return  data[x + ((y - 1) * 16)] ~= nil and true or false
 end
 
-local function id_to_x(id)
-  return (id - 1) % 16 + 1
-end
-
-local function id_to_y(id)
-  return math.ceil(id / 16)
-end
-
 local function K3_is_hold()
   return K3_hold
 end
@@ -233,22 +225,24 @@ local function load_project(pth)
       for k,v in pairs(saved[2]) do
         data[k] = v
       end
-      -- re-init metatables
-      for t = 1, #data do
+      -- re-init metatables (`data` is sparse — pattern slots can be deleted —
+      -- so iterate via pairs and skip the non-numeric keys like `pattern`).
+      for t in pairs(data) do
+        if type(t) == "number" then
           for l = 1, 7 do
             for k = 1, 256 do
-            data[t][l].params[k] = saved[2][t][l].params[k]
-            setmetatable(data[t][l].params[k], {__index =  data[t][l].params[tostring(l)]})
+              data[t][l].params[k] = saved[2][t][l].params[k]
+              setmetatable(data[t][l].params[k], {__index = data[t][l].params[tostring(l)]})
             end
           end
-
           for l = 8, 14 do
             for k = 1, 256 do
               data[t][l].params[k] = saved[2][t][l].params[k]
-            setmetatable(data[t][l].params[k], {__index =  data[t][l].params[tostring(l)]})
+              setmetatable(data[t][l].params[k], {__index = data[t][l].params[tostring(l)]})
             end
           end
         end
+      end
 
         if saved[1] then params:read(norns.state.data .. saved[1] .. ".pset") end
         reset_positions()
@@ -293,14 +287,6 @@ end
 
 local function get_step(x)
   return (x * 16) - 15
-end
-
-local function get_substep(tr, step)
-    for s = (step*16) - 15, (step*16) + 15 do
-      if data[data.pattern][tr][s] == 1 then
-        return true
-      end
-    end
 end
 
 local function get_params(tr, step, lock)
@@ -379,32 +365,26 @@ local function have_substeps(tr, step)
     end
 end
 
-local function place_note(tr, step, note )
+local function place_note(tr, step, note)
   data[data.pattern][tr][step] = 1
   data[data.pattern][tr].params[step].lock = 1
-  data[data.pattern][tr].params[step].note = data[data.pattern][tr].params[step].note
   data[data.pattern][tr].params[step].note = note
 end
 
 --- tracks
 
 local function is_lock()
-    local src = data.selected
-    if src[2] == false then
-      return tostring(src[1])
-    else
-      return src[2]
-    end
+  return data.selected.step or tostring(data.selected.track)
 end
 
 local function tr_change(tr)
-  data.selected[1] = tr
+  data.selected.track = tr
   redraw_params[1] = get_params(tr)
   redraw_params[2] = redraw_params[1]
 end
 
 local function get_sample()
-  return data[data.pattern][data.selected[1]].params[is_lock()].sample
+  return data[data.pattern][data.selected.track].params[is_lock()].sample
 end
 
 local function sample_not_loaded(n)
@@ -465,7 +445,7 @@ end
 local function get_sample_start(tr, s)
   local minval = params:lookup_param("start_frame_" .. data[data.pattern][tr].params[s].sample).controlspec.minval
   data[data.pattern][tr].params[s].start_frame = minval
-  data[data.pattern][tr].params[s].start_end_frame = minval
+  data[data.pattern][tr].params[s].loop_start_frame = minval
 end
 --- copy / settings
 
@@ -480,29 +460,12 @@ local function copy_pattern(src, dst)
     data[dst] = deepcopy(data[src])
 end
 
-local function open_sample_settings()
-    local p = is_lock()
-    norns.menu.toggle(true)
-    norns.encoders.set_sens(2,1)
-    _norns.enc(1, 1000)
-    _norns.enc(2,-9999999)
-    _norns.enc(2, 36 +(( data[data.pattern][data.selected[1]].params[p].sample - 1 ) * 51 ))
-    norns.encoders.set_sens(2,4)
-end
-
- function open_settings(i)
-     norns.menu.toggle(true)
-    _norns.enc(1, 1000)
-    _norns.enc(2,-9999999)
-    _norns.enc(2, 10 + (i*4))
-end
-
 local function change_filter_type()
-    local tr = data.selected[1]
-    local p = is_lock()
-    p = type(p) == 'string' and p or get_step(p)
-    data[data.pattern][tr].params[p].filter_type =  data[data.pattern][tr].params[p].filter_type
-    data[data.pattern][tr].params[p].filter_type = (data[data.pattern][tr].params[p].filter_type % 2 ) + 1
+  local tr = data.selected.track
+  local p = is_lock()
+  p = type(p) == 'string' and p or get_step(p)
+  local ft = data[data.pattern][tr].params[p].filter_type
+  data[data.pattern][tr].params[p].filter_type = (ft % 2) + 1
 end
 
 local function choke_group(tr, sample)
@@ -593,7 +556,7 @@ local function seqrun(counter)
 
             step_param = step_param.lock ~= 1 and get_params(tr) or step_param
 
-            if tr == data.selected[1] then
+            if tr == data.selected.track then
               redraw_params[1] = step_param
               redraw_params[2] = step_param
             end
@@ -626,7 +589,7 @@ end
 local function midi_event(d)
 
   local msg = midi.to_msg(d)
-  local tr = data.selected[1]
+  local tr = data.selected.track
 
   local pos = data[data.pattern].track.pos[tr]
 
@@ -639,8 +602,10 @@ local function midi_event(d)
   -- Note on
   elseif msg.type == "note_on" then
     if ei.active ~= views.sampling then
-      engine.noteOff(tr)
-      engine.noteOn(tr, music.note_num_to_freq(msg.note), msg.vel / 127, data[data.pattern][tr].params[tostring(tr)].sample)
+      if is_engine(tr) then
+        engine.noteOff(tr)
+        engine.noteOn(tr, music.note_num_to_freq(msg.note), msg.vel / 127, data[data.pattern][tr].params[tostring(tr)].sample)
+      end
       if sequencer_metro.is_running and PATTERN_REC then
         place_note(tr, pos, msg.note)
       end
@@ -660,8 +625,8 @@ local track_params = {
   end,
   [-5] = function(tr, s, d) -- rnd
         local offset = ei.active == views.midi and 7 or 0
-        data.selected[1] = util.clamp(data.selected[1] + d, 1 + offset, 7 + offset)
-        tr_change(data.selected[1])
+        data.selected.track = util.clamp(data.selected.track + d, 1 + offset, 7 + offset)
+        tr_change(data.selected.track)
   end,
   [-4] = function(tr, s, d) -- global bpm
       set_bpm(util.clamp(data[data.pattern].bpm + d, 1, 999))
@@ -761,7 +726,7 @@ local step_params = {
       local pspec = params:lookup_param("start_frame_" .. sample).controlspec
       local start = util.clamp(pspec:unmap( data[data.pattern][tr].params[s].start_frame ) + (d / set_enc_res(200, 1000) ), 0, 1)
       data[data.pattern][tr].params[s].start_frame = pspec:map(start)
-      data[data.pattern][tr].params[s].lool_start_frame = pspec:map(start)
+      data[data.pattern][tr].params[s].loop_start_frame = pspec:map(start)
   end,
   [4] = function(tr, s, d) -- len
       local sample = data[data.pattern][tr].params[s].sample
@@ -935,8 +900,8 @@ controls.tick = function(box)
   box:led(3, (in_notes and PATTERN_REC) and glow
               or in_notes and 6
               or 0)
-  box:led(5, (in_notes and is_engine(data.selected[1]) or ei.active == views.steps) and 15 or 6)
-  box:led(6, (in_notes and is_midi(data.selected[1]) or ei.active == views.midi) and 15 or 6)
+  box:led(5, (in_notes and is_engine(data.selected.track) or ei.active == views.steps) and 15 or 6)
+  box:led(6, (in_notes and is_midi(data.selected.track) or ei.active == views.midi) and 15 or 6)
   box:led(8, in_notes and 15 or 6)
   box:led(10, ei.active == views.sampling and 15 or 6)
   box:led(11, ei.active == views.patterns and 15 or 6)
@@ -1038,7 +1003,7 @@ do
   local function decode(seq)
     local x = ((seq - 1) % 16) + 1
     local gy = math.floor((seq - 1) / 16) + 1
-    local tr = is_midi(data.selected[1]) and gy + 7 or gy
+    local tr = is_midi(data.selected.track) and gy + 7 or gy
     return x, gy, tr
   end
 
@@ -1065,7 +1030,7 @@ do
         copy_step(copy, { tr, x })
       end
     else
-      data.selected = { tr, x }
+      data.selected = { track = tr, step = x }
       press_down_time = util.time()
     end
   end
@@ -1075,7 +1040,7 @@ do
     hold_row[gy] = math.max(0, hold_row[gy] - 1)
     if SHIFT or ALT or MOD then return end
 
-    data.selected = { tr, false }
+    data.selected = { track = tr, step = false }
     tr_change(tr)
     if data.ui_index < 1 then data.ui_index = 1 end
 
@@ -1091,8 +1056,8 @@ do
 
   step_grid.tick = function(box)
     box:all(0)
-    local sel_tr = data.selected[1]
-    local sel_step = data.selected[2]
+    local sel_tr = data.selected.track
+    local sel_step = data.selected.step
     local pat = data[data.pattern]
     local midi_offset = is_midi(sel_tr) and 7 or 0
 
@@ -1156,7 +1121,7 @@ do
   notes_keyboard.keydown = function(box, seq)
     local x = ((seq - 1) % 16) + 1
     local gy = math.floor((seq - 1) / 16) + 1
-    local tr = data.selected[1]
+    local tr = data.selected.track
     local track_default = data[data.pattern][tr].params[tostring(tr)]
     local note = linn.grid_key(x, gy, 1, track_default.device and midi_out_devices[track_default.device])
     if not note then return end
@@ -1173,7 +1138,7 @@ do
   notes_keyboard.keyup = function(box, seq)
     local x = ((seq - 1) % 16) + 1
     local gy = math.floor((seq - 1) / 16) + 1
-    local tr = data.selected[1]
+    local tr = data.selected.track
     local device = data[data.pattern][tr].params[tostring(tr)].device
     linn.grid_key(x, gy, 0, device and midi_out_devices[device])
     last_seq = 0
@@ -1223,9 +1188,9 @@ local params_fx = {
 -- `:enc` / `:key` (set per-view below).
 
 local function track_select_enc(d)
-  local offset = is_midi(data.selected[1]) and 7 or 0
-  data.selected[1] = util.clamp(data.selected[1] + d, 1 + offset, 7 + offset)
-  tr_change(data.selected[1])
+  local offset = is_midi(data.selected.track) and 7 or 0
+  data.selected.track = util.clamp(data.selected.track + d, 1 + offset, 7 + offset)
+  tr_change(data.selected.track)
 end
 
 -- enc(2) ui_index navigation for step-grid-style views; `upper` is the upper
@@ -1234,16 +1199,16 @@ local function steps_enc2(d, upper)
   if K1_is_hold() then
     data.ui_index = util.clamp(data.ui_index + d, -6, -1)
   else
-    data.ui_index = util.clamp(data.ui_index + d, data.selected[2] and -3 or 1, upper)
+    data.ui_index = util.clamp(data.ui_index + d, data.selected.step and -3 or 1, upper)
   end
 end
 
 -- enc(3) step / track / trig param edit (steps, midi, notes share this).
 local function steps_enc3(d)
-  local tr = data.selected[1]
+  local tr = data.selected.track
   local p = is_lock()
   local t = type(p) == 'number' and get_step(p) or p
-  data[data.pattern][tr].params[t].lock = data.selected[2] and 1 or 0
+  data[data.pattern][tr].params[t].lock = data.selected.step and 1 or 0
   redraw_params[1] = get_params(tr, is_lock())
   redraw_params[2] = redraw_params[1]
   if K1_is_hold() then
@@ -1271,10 +1236,10 @@ end
 -- key(3) engine-track shortcuts (sample loading, filter type, lfo/send jumps).
 local function steps_key3(z)
   if data.ui_index == 1 and z == 1 then
-    local sample_id = data[data.pattern][data.selected[1]].params[is_lock()].sample
+    local sample_id = data[data.pattern][data.selected.track].params[is_lock()].sample
     browser.enter(_path.audio, timber.load_sample, sample_id)
   elseif (data.ui_index == 3 or data.ui_index == 4) and z == 1 and sample_not_loaded(get_sample()) then
-    local sample_id = data[data.pattern][data.selected[1]].params[is_lock()].sample
+    local sample_id = data[data.pattern][data.selected.track].params[is_lock()].sample
     browser.enter(_path.audio, timber.load_sample, sample_id)
   elseif (data.ui_index == 17 or data.ui_index == 18) and z == 1 then
     change_filter_type()
@@ -1293,8 +1258,7 @@ local function steps_key3(z)
   end
 end
 
--- Per-view enc/key handlers, dispatched by view instance. Kept out of eli
--- so that library stays grid-only.
+-- Per-view enc/key handlers, dispatched by view instance.
 local view_enc, view_key = {}, {}
 
 view_enc[views.steps] = function(n, d)
@@ -1325,11 +1289,11 @@ view_enc[views.patterns] = function(n, d)
     if K1_is_hold() then
       data.ui_index = util.clamp(data.ui_index + d, -1, -1)
     else
-      data.ui_index = util.clamp(data.ui_index + d, data.selected[2] and -3 or 1, 18)
+      data.ui_index = util.clamp(data.ui_index + d, data.selected.step and -3 or 1, 18)
     end
   elseif n == 3 then
     if K1_is_hold() then
-      track_params[-1](data.selected[1], tostring(data.selected[1]), d)
+      track_params[-1](data.selected.track, tostring(data.selected.track), d)
     else
       params_fx[data.ui_index](d)
     end
@@ -1401,15 +1365,6 @@ function init()
     params:set_action('new', function(x) init() end)
     params:add_separator()
 
-
-    for i = 1, 14 do
-      hold[i] = 0
-      holdmax[i] = 0
-      first[i] = 0
-      second[i] = 0
-    end
-    hold['p'] = 0
-
     redraw_params[1] = data[1][1].params[tostring(1)]
     redraw_params[2] = data[1][1].params[tostring(1)]
 
@@ -1447,7 +1402,7 @@ end
 
 function key(n, z)
   K1_hold = (n == 1 and z == 1) and true or false
-  K3_hold = (n == 1 and z == 1) and true or false
+  K3_hold = (n == 3 and z == 1) and true or false
   if browser.open then
     browser.key(n, z)
     return
@@ -1459,15 +1414,15 @@ end
 -- screen redraw fn
 function redraw(stage)
 
-  local tr = data.selected[1]
+  local tr = data.selected.track
   local pos = data[data.pattern].track.pos[tr]
   local params_data = get_params(tr, sequencer_metro.is_running and pos or false, true)
 
 
 
-  if data.selected[2] then
-    redraw_params[1] = get_params(data.selected[1], get_step(data.selected[2]), true)
-  elseif not data.selected[2] then
+  if data.selected.step then
+    redraw_params[1] = get_params(data.selected.track, get_step(data.selected.step), true)
+  elseif not data.selected.step then
     redraw_params[1] = redraw_params[2]
   end
 
@@ -1481,7 +1436,7 @@ function redraw(stage)
   elseif ei.active == views.patterns then
     ui.patterns(data.pattern, data.metaseq, data.ui_index, stage)
   else
-    if is_engine(data.selected[1]) then
+    if is_engine(data.selected.track) then
       local meta = timber.get_meta(redraw_params[1].sample)
       -- length hack
       local max_len = meta.num_frames
@@ -1500,6 +1455,3 @@ function redraw(stage)
   end
   screen.update()
 end
-
-
-

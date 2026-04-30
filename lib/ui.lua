@@ -69,8 +69,8 @@ end
 
 
 function ui.head(params_data, data, is_sampling, k1, rules, PATTERN_REC, preview)
-  local tr = data.selected[1]
-  local s = data.selected[2]
+  local tr = data.selected.track
+  local s = data.selected.step
   local pos = data[data.pattern].track.pos[tr]
   
   screen.level((not is_sampling and data.ui_index == -6 ) and 5 or 2)  
@@ -171,7 +171,7 @@ else
       for i = 1, 16 do
         local offset_y = i <= 8 and 0 or 4
         local offset_x = i <= 8 and 0 or 8
-        local st = s and get_step(data.selected[2]) or util.round(data[data.pattern].track.pos[tr], 16) + 1
+        local st = s and get_step(s) or util.round(data[data.pattern].track.pos[tr], 16) + 1
         local step = data[data.pattern][tr][st + (i - 1 )]
         
         screen.level((not is_sampling and data.ui_index == 0) and 5 or 2)
