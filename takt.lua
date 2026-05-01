@@ -21,7 +21,7 @@ local midi_out_devices = {}
 local REC_CC = 38
 --
 local blink = 1
-local ALT, SHIFT, MOD, PATTERN_REC, K1_hold, K3_hold, ptn_copy, ptn_change_pending = false, false, false, false, false, false, false, false
+local ALT, SHIFT, MOD, PATTERN_REC, K1_HELD, K3_HELD, ptn_copy, ptn_change_pending = false, false, false, false, false, false, false, false
 local redraw_params = {}
 local copy = { false, false }
 local freq_map = controlspec.WIDEFREQ
@@ -35,7 +35,9 @@ local time_map = controlspec.new(0.0001, 5, 'exp', 0, 0.1, 's')
 --
 local ei = eli.Instrument.new()
 local g = ei.grid
+-- every keypress pings the screen, resetting the screensaver timer
 ei.before_key = function(x, y, z) screen.ping() end
+
 local views = {}
 views.steps = ei:new_view("steps")
 views.midi = ei:new_view("midi")
@@ -49,8 +51,8 @@ local controlkeydownfns, controlkeyupfns
 local controls = eli.Box.new(16, 1)
 controls.keydown = function(box, seq)
   if controlkeydownfns[seq] then
-    controlkeydownfns[seq]() 
-  else 
+    controlkeydownfns[seq]()
+  else
       print("unmapped control keydown")
   end
 end
@@ -60,7 +62,7 @@ controls.keyup = function(box, seq)
   else
     print("unmapped control keyup")
   end
-  
+
 end
 
 for _, v in pairs(views) do
@@ -170,16 +172,8 @@ local function pattern_exists(x, y)
   return  data[x + ((y - 1) * 16)] ~= nil and true or false
 end
 
-local function K3_is_hold()
-  return K3_hold
-end
-
-local function K1_is_hold()
-  return K1_hold
-end
-
 local function set_enc_res(fine, coarse)
-  return K3_is_hold() and coarse or fine
+  return K3_HELD and coarse or fine
 end
 
 local function reset_positions()
@@ -699,7 +693,7 @@ local midi_step_params = {
 local step_params = {
   [1]  = function(tr, s, d) bump(tr, s, 'sample', d, 1, 99) end,
   [2]  = function(tr, s, d)
-    if K3_is_hold() then
+    if K3_HELD then
       bump(tr, s, 'detune_cents', d, -100, 100)
     else
       bump(tr, s, 'note', d, 25, 127)
@@ -1140,7 +1134,7 @@ end
 -- enc(2) ui_index navigation for step-grid-style views; `upper` is the upper
 -- bound when not holding K1 (steps/notes = 20, midi/patterns = 18).
 local function steps_enc2(d, upper)
-  if K1_is_hold() then
+  if K1_HELD then
     data.ui_index = util.clamp(data.ui_index + d, -6, -1)
   else
     data.ui_index = util.clamp(data.ui_index + d, data.selected.step and -3 or 1, upper)
@@ -1163,7 +1157,7 @@ local function steps_enc3(d)
     redraw_params[1] = get_params(tr)
   end
   redraw_params[2] = redraw_params[1]
-  if K1_is_hold() then
+  if K1_HELD then
     track_params[data.ui_index](tr, p, d)
   else
     local params_t = data.ui_index < 1 and trig_params or is_engine(tr) and step_params or midi_step_params
@@ -1182,7 +1176,7 @@ end
 
 -- key(1) ui_index reset, common to step-grid-style views.
 local function steps_key1()
-  data.ui_index = K1_is_hold() and -4 or 1
+  data.ui_index = K1_HELD and -4 or 1
 end
 
 -- key(3) engine-track shortcuts (sample loading, filter type, lfo/send jumps).
@@ -1236,13 +1230,13 @@ view_enc[views.patterns] = function(n, d)
   if n == 1 then
     track_select_enc(d)
   elseif n == 2 then
-    if K1_is_hold() then
+    if K1_HELD then
       data.ui_index = util.clamp(data.ui_index + d, -1, -1)
     else
       data.ui_index = util.clamp(data.ui_index + d, data.selected.step and -3 or 1, 18)
     end
   elseif n == 3 then
-    if K1_is_hold() then
+    if K1_HELD then
       track_params[-1](data.selected.track, tostring(data.selected.track), d)
     else
       params_fx[data.ui_index](d)
@@ -1278,14 +1272,14 @@ view_key[views.notes] = view_key[views.steps]
 
 view_key[views.patterns] = function(n, z)
   if n == 1 then
-    data.ui_index = K1_is_hold() and -1 or 1
+    data.ui_index = K1_HELD and -1 or 1
   end
   -- n == 2 and n == 3 are no-ops in patterns view.
 end
 
 view_key[views.sampling] = function(n, z)
   if n == 1 then
-    data.ui_index = 1 -- K1_hold doesn't reach a special branch in sampling
+    data.ui_index = 1 -- K1_HELD doesn't reach a special branch in sampling
   elseif n == 3 then
     sampling_actions[data.ui_index](z)
     if z == 1 and ((data.ui_index == 1 and sampler.rec) or data.ui_index == 4) then
@@ -1347,8 +1341,8 @@ function enc(n, d)
 end
 
 function key(n, z)
-  K1_hold = (n == 1 and z == 1) and true or false
-  K3_hold = (n == 3 and z == 1) and true or false
+  K1_HELD = (n == 1 and z == 1) and true or false
+  K3_HELD = (n == 3 and z == 1) and true or false
   if browser.open then
     browser.key(n, z)
     return
@@ -1374,7 +1368,7 @@ function redraw(stage)
 
   screen.clear()
 
-  ui.head(redraw_params[1], data, ei.active == views.sampling, K1_is_hold(), rules, PATTERN_REC, browser.preview)
+  ui.head(redraw_params[1], data, ei.active == views.sampling, K1_HELD, rules, PATTERN_REC, browser.preview)
 
   if ei.active == views.sampling then
     local pos = sampler.get_pos()
